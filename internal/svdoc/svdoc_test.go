@@ -1,0 +1,152 @@
+package svdoc
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestContractFixture(t *testing.T) {
+	d, err := Parse(fixture(t, "GreenFangToolkit.contract.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Status != StatusOK || d.AddonVersion != "0.4.0" {
+		t.Fatalf("status %v version %q", d.Status, d.AddonVersion)
+	}
+	if len(d.Entries) != 2 || d.Skipped != 2 {
+		t.Fatalf("entries %d skipped %d", len(d.Entries), d.Skipped)
+	}
+	if d.Entries[0].Kind != "character.self" || d.Entries[1].Kind != "roster.snapshot" {
+		t.Fatal("kinds")
+	}
+	for _, e := range d.Entries {
+		s := string(e.JSON)
+		if strings.Contains(s, "zone") || strings.Contains(s, "online") || strings.Contains(s, "不該上傳") {
+			t.Fatalf("private field leaked: %s", s)
+		}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(d.Entries[0].JSON, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["futureField"] == nil {
+		t.Fatal("unknown entry fields are passed through unchanged")
+	}
+	if m["id"] != d.Entries[0].ID {
+		t.Fatal("id mismatch")
+	}
+	var r map[string]any
+	_ = json.Unmarshal(d.Entries[1].JSON, &r)
+	members := r["payload"].(map[string]any)["members"].([]any)
+	if p := members[1].(map[string]any)["professions"]; p == nil {
+		t.Fatal("empty professions should be an empty array")
+	} else if arr, ok := p.([]any); !ok || len(arr) != 0 {
+		t.Fatalf("professions = %#v", p)
+	}
+}
+
+// The AddOn's official sample. It lives in the guild's private toolkit repo
+// (tests/fixtures/); skip when absent. GFSYNC_ADDON_FIXTURE overrides the path.
+func TestAddonSampleFixture(t *testing.T) {
+	path := os.Getenv("GFSYNC_ADDON_FIXTURE")
+	if path == "" {
+		path = filepath.Join("..", "..", "..", "tests", "fixtures", "GreenFangToolkit.sample.lua")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("addon sample not present: %v", err)
+	}
+	d, err := Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Status != StatusOK || len(d.Entries) != 3 || d.Skipped != 0 {
+		t.Fatalf("status %v entries %d skipped %d", d.Status, len(d.Entries), d.Skipped)
+	}
+	for _, e := range d.Entries {
+		if strings.Contains(string(e.JSON), `"zone"`) || strings.Contains(string(e.JSON), `"online"`) {
+			t.Fatalf("private field in %s", e.ID)
+		}
+	}
+}
+
+func TestStatuses(t *testing.T) {
+	cases := []struct {
+		src  string
+		want Status
+	}{
+		{`GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = true, outbox = {} } }`, StatusOK},
+		{`GreenFangToolkitDB = { schemaVersion = 1, sync = { enabled = true, outbox = { { id = "a", kind = "character.self", capturedAt = 1 } } } }`, StatusUnsupported},
+		{`GreenFangToolkitDB = { schemaVersion = 0, sync = { enabled = true } }`, StatusUnsupported},
+		{`GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = false, outbox = { { id = "a", kind = "character.self", capturedAt = 1 } } } }`, StatusDisabled},
+		{`GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = "true" } }`, StatusDisabled},
+		{`GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = 1 } }`, StatusDisabled},
+		{`GreenFangToolkitDB = { schemaVersion = 2 }`, StatusDisabled},
+		{`GreenFangToolkitDB = { schemaVersion = 3, sync = { enabled = true } }`, StatusUnsupported},
+		{`GreenFangToolkitDB = { schemaVersion = 2.5, sync = { enabled = true } }`, StatusUnsupported},
+		{`GreenFangToolkitDB = { schemaVersion = "2", sync = { enabled = true } }`, StatusUnsupported},
+		{`GreenFangToolkitDB = { sync = { enabled = true } }`, StatusUnsupported},
+		{`GreenFangToolkitDB = "oops"`, StatusNoTable},
+		{`SomethingElseDB = {}`, StatusNoTable},
+		{``, StatusNoTable},
+	}
+	for _, c := range cases {
+		d, err := Parse([]byte(c.src))
+		if err != nil {
+			t.Errorf("%s: %v", c.src, err)
+			continue
+		}
+		if d.Status != c.want {
+			t.Errorf("%s: got %v want %v", c.src, d.Status, c.want)
+		}
+		if d.Status != StatusOK && len(d.Entries) != 0 {
+			t.Errorf("%s: entries must be empty when not OK", c.src)
+		}
+	}
+}
+
+func TestBadEntries(t *testing.T) {
+	src := `GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = true, outbox = {
+		"not a table",
+		{ kind = "character.self", capturedAt = 1 },
+		{ id = "", kind = "character.self", capturedAt = 1 },
+		{ id = "x", kind = "character.self" },
+		{ id = "x", kind = "character.self", capturedAt = "1" },
+		{ id = "x", capturedAt = 1 },
+		{ id = 5, kind = "character.self", capturedAt = 1 },
+		{ id = "` + strings.Repeat("a", 300) + `", kind = "character.self", capturedAt = 1 },
+		{ id = "good", kind = "character.self", capturedAt = 1 },
+	} } }`
+	d, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Entries) != 1 || d.Entries[0].ID != "good" || d.Skipped != 8 {
+		t.Fatalf("entries %d skipped %d", len(d.Entries), d.Skipped)
+	}
+}
+
+func TestMaliciousFile(t *testing.T) {
+	for _, src := range []string{
+		`GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = os.execute("calc") } }`,
+		`GreenFangToolkitDB = { schemaVersion = 2 } os.exit()`,
+		`GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = true, outbox = {`,
+	} {
+		if _, err := Parse([]byte(src)); !errors.Is(err, ErrParse) {
+			t.Errorf("%s: want ErrParse, got %v", src, err)
+		}
+	}
+}
