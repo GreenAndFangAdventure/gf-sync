@@ -6,22 +6,17 @@
 - **只讀取**插件的存檔，不會修改任何遊戲檔案，也不會安裝或更新插件。
 - 以 MIT 授權開源（[`LICENSE`](LICENSE)）。
 
-## 安裝
+## 安裝（三步驟）
 
-1. 從 [GitHub Releases](https://github.com/GreenAndFangAdventure/gf-sync/releases) 下載 `GFSync-Setup-<版本>.exe`。
-2. （建議）核對 SHA-256：在 PowerShell 執行 `Get-FileHash .\GFSync-Setup-<版本>.exe`，和 Release 頁的 `SHA256SUMS.txt` 比對。
-3. 執行安裝檔。安裝過程會先顯示[隱私權政策](PRIVACY.md)。不需要系統管理員權限，程式會裝在 `%LOCALAPPDATA%\Programs\GFSync`。
-4. 「開機時自動啟動 GF Sync」預設勾選，做法是在你的「啟動」資料夾放一個捷徑（可以在「工作管理員 → 啟動應用程式」關掉）。
+1. **下載**：從 [GitHub Releases](https://github.com/GreenAndFangAdventure/gf-sync/releases) 下載 `GFSync-Setup-<版本>.exe`。
+2. **安裝**：執行安裝檔，看完隱私權政策後一路按「下一步」，最後按「完成」。不需要系統管理員權限，也不用改任何設定。
+3. **在 Discord 允許**：安裝完 GF Sync 會自己開啟瀏覽器。用 Discord 登入公會網站，確認配對碼和通知上的一樣，按「允許這台電腦同步」。看到「GF Sync 已連結」的通知就完成了。
 
-目前的版本還**沒有數位簽章**（申請中，見 [Code signing policy](#code-signing-policy)），所以 Windows SmartScreen 可能顯示「Windows 已保護您的電腦」，請按「其他資訊」→「仍要執行」。部分防毒軟體也可能誤判，請先核對 SHA-256。
+之後每次你在遊戲中登出或 `/reload`，GF Sync 就會在幾秒內自動上傳，不需要再做任何事。開機時會自動啟動（安裝時預設勾選，做法是在「啟動」資料夾放捷徑，可以在「工作管理員 → 啟動應用程式」關掉）。
 
-## 配對（只需要做一次）
+目前的版本還**沒有數位簽章**（申請中，見 [Code signing policy](#code-signing-policy)），所以 Windows SmartScreen 可能顯示「Windows 已保護您的電腦」，請按「其他資訊」→「仍要執行」。部分防毒軟體也可能誤判；擔心的話可以在 PowerShell 執行 `Get-FileHash .\GFSync-Setup-<版本>.exe`，和 Release 頁的 `SHA256SUMS.txt` 比對。
 
-1. 第一次啟動時，GF Sync 會自動開啟瀏覽器，並顯示一組 8 碼的配對碼。
-2. 用 Discord 登入公會網站，確認畫面上的配對碼一樣，再按「允許這台電腦同步」。
-3. 完成。之後每次你在遊戲中登出或 `/reload`，GF Sync 就會在幾秒內上傳新資料。
-
-工作列綠色圖示的右鍵選單可以看到狀態、上次同步時間，也可以「立即同步」「重新配對」「選擇遊戲資料夾…」。找不到遊戲時，GF Sync 會請你選擇 `World of Warcraft` 或其中的 `_forever_` 資料夾。
+工作列右下角的公會盾牌圖示就是 GF Sync（右下角有灰點＝暫停、紅點＝有問題、黃點＝等待配對）。按右鍵的選單可以看到狀態、上次同步時間，也可以「立即同步」「重新配對」「選擇遊戲資料夾…」。找不到遊戲時，GF Sync 會請你選擇 `World of Warcraft` 或其中的 `_forever_` 資料夾。
 
 ## 會上傳哪些資料
 
@@ -29,7 +24,7 @@
 
 ## 暫停或關閉
 
-- 遊戲內輸入 `/gf sync off`：插件標記不同步，GF Sync 不會上傳這個帳號的資料。
+- 遊戲內：在綠皮冒險工具箱的「設定」關閉同步（進階：輸入 `/gf sync off`），GF Sync 就不會上傳這個帳號的資料。
 - 工作列選單勾選「暫停同步」：重新開機後仍然有效，取消勾選才會恢復。
 - 到 <https://greenandfangadventure.com/pages/sync-devices> 撤銷這台電腦。
 
@@ -66,10 +61,12 @@ go test ./...                                                       # 只跑測�
 | `internal/secret` | token 用 Windows DPAPI 加密存在 `%APPDATA%\GFSync\token.dat` |
 | `internal/mockapi`、`cmd/gfsync-mock` | 離線模擬網站 API |
 | `internal/winui`、`internal/icon`、`cmd/gfsync` | 工作列介面（繁體中文） |
-| `cmd/mkres` | 產生 exe 的版本資訊、`asInvoker` manifest、圖示，以及安裝檔圖示 |
+| `internal/icon` | 由公會徽章產生工作列圖示：16～48 px 用簡化版（深綠盾＋黃色獠牙臉），狀態點在右下角 |
+| `assets/brand` | 公會徽章原圖（**不在 MIT 授權範圍內**，見下方「授權」） |
+| `cmd/mkres` | 產生 exe 的版本資訊、`asInvoker` manifest、圖示（16～32 px 簡化版、48 px 以上完整徽章）、安裝檔圖示；`-preview <檔名>.png` 輸出所有尺寸的預覽圖 |
 | `installer/gfsync.iss` | Inno Setup 6 安裝檔 |
 
-測試用參數：`GFSync.exe --api http://127.0.0.1:8787`（或環境變數 `GFSYNC_API_BASE`）改連本機模擬伺服器 `go run ./cmd/gfsync-mock`。非 loopback 位址一律要求 https。
+開發者對本機模擬伺服器測試的方法見 [`MANUAL.md`](MANUAL.md)。
 
 ## Code signing policy
 
@@ -79,7 +76,9 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 
 ## 授權
 
-MIT，著作權人「綠皮與獠牙冒險事務所」。第三方套件授權見 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)。
+程式碼以 MIT 授權發布（[`LICENSE`](LICENSE)）。第三方套件授權見 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)。
+
+**公會徽章不在 MIT 授權範圍內。** `assets/brand/` 裡的徽章圖，以及由它產生的程式圖示、工作列圖示，是「綠皮與獠牙冒險事務所」的標誌，保留所有權利，詳見 [`assets/brand/README.md`](assets/brand/README.md)。fork 本專案時請換成自己的圖示。
 
 ---
 
@@ -87,9 +86,9 @@ MIT，著作權人「綠皮與獠牙冒險事務所」。第三方套件授權�
 
 **GF Sync** is a small Windows tray app for the World of Warcraft guild 綠皮與獠牙冒險事務所 ("Green and Fang Adventure"). It reads the SavedVariables file written by the guild's in-game AddOn (read-only, never executing Lua and never modifying game files) and uploads character and roster data to the guild website, greenandfangadventure.com, after a one-time device pairing via Discord login.
 
-- **Install:** download `GFSync-Setup-<version>.exe` from GitHub Releases, verify its SHA-256, run it (no admin rights needed). The privacy policy is shown during setup. Autostart uses a shortcut in the user's Startup folder.
+- **Install (three steps):** download `GFSync-Setup-<version>.exe` from GitHub Releases, run it and click through (the privacy policy is shown; no admin rights, nothing to change), then allow the device on the guild website with Discord — GF Sync opens the page by itself and shows a "connected" notification when done. Autostart uses a shortcut in the user's Startup folder.
 - **Data:** character name, realm, faction, guild and rank, level, class, race, professions, and guild roster snapshots. Location and online status are never uploaded. See [PRIVACY.md](PRIVACY.md).
-- **Stop syncing:** `/gf sync off` in game, "暫停同步" (Pause) in the tray menu, or revoke the device on the website.
+- **Stop syncing:** turn sync off in the AddOn's settings (or `/gf sync off`), "暫停同步" (Pause) in the tray menu, or revoke the device on the website.
 - **Uninstall:** tray menu "解除安裝 GF Sync…", the Start menu uninstall shortcut, or Windows Settings → Apps.
 - **Build:** Go + Inno Setup 6, `build.ps1 -Version <x.y.z>`; releases are built by GitHub Actions.
-- **License:** MIT. Code signing: see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+- **License:** code is MIT. The guild emblem in `assets/brand/` and the icons made from it are **not** MIT licensed (all rights reserved; see `assets/brand/README.md`). Code signing: see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).

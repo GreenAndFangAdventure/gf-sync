@@ -15,6 +15,22 @@ const appName = "綠皮同步（GF Sync）"
 // privacyURL is the public privacy policy (PRIVACY.md in the gf-sync repo).
 const privacyURL = "https://github.com/GreenAndFangAdventure/gf-sync/blob/main/PRIVACY.md"
 
+// Notifications. Kept short: Windows cuts long notification text.
+const (
+	pairingTitle = "請在瀏覽器按「允許」"
+	pairedTitle  = "GF Sync 已連結"
+	pairedText   = "之後下線就會自動同步，不用再做任何事。"
+)
+
+func pairingText(code string) string {
+	return "用 Discord 登入公會網站，確認配對碼 " + code + "，再按「允許這台電腦同步」。"
+}
+
+func browserFailedText(url, code string) string {
+	return "無法自動開啟瀏覽器。\n\n請自己開啟下面的網址，用 Discord 登入後確認配對碼是 " + code +
+		"，再按「允許這台電腦同步」：\n\n" + url
+}
+
 const uninstallPrompt = "要從這台電腦移除 GF Sync 嗎？\n\n" +
 	"這台電腦的配對資料（token）、上傳紀錄和記錄檔會一起刪除。魔獸世界的資料夾不會被修改。\n" +
 	"已經上傳到公會網站的資料不會因此刪除；如果不再使用，也可以到公會網站的「同步裝置」頁面撤銷這台電腦。"

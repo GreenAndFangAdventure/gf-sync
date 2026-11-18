@@ -16,7 +16,7 @@ GreenFangToolkitDB = {
   addonVersion = "0.4.0",
   settings = { ... },            -- 介面設定，GF Sync 不讀
   sync = {
-    enabled = true,              -- 遊戲內 /gf sync off 會改成 false，GF Sync 就整個檔案都不上傳
+    enabled = true,              -- 玩家在工具箱「設定」關閉同步（或 /gf sync off）時是 false，GF Sync 就整個檔案都不上傳
     outbox = { <entry>, ... },   -- 待上傳的資料
   },
 }

@@ -38,6 +38,26 @@ func TestTexts(t *testing.T) {
 	}
 }
 
+func TestNotificationTexts(t *testing.T) {
+	// Windows limits notification text to 255 characters and titles to 63.
+	for _, s := range []string{pairingTitle, pairedTitle} {
+		if n := len([]rune(s)); n > 63 {
+			t.Errorf("title %q is %d runes", s, n)
+		}
+	}
+	for _, s := range []string{pairedText, pairingText("ABCD-EFGH")} {
+		if n := len([]rune(s)); n > 255 {
+			t.Errorf("text %q is %d runes", s, n)
+		}
+	}
+	if !strings.Contains(pairingText("ABCD-EFGH"), "ABCD-EFGH") {
+		t.Fatal("pairing text must show the code")
+	}
+	if !strings.Contains(browserFailedText("https://x/pages/sync-pair?code=1", "C"), "https://x/pages/sync-pair?code=1") {
+		t.Fatal("fallback must show the address")
+	}
+}
+
 func TestFindUninstaller(t *testing.T) {
 	dir := t.TempDir()
 	if findUninstaller(dir) != "" {

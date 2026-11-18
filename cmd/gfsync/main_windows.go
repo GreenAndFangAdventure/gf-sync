@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -55,7 +54,7 @@ func main() {
 
 	mutex, first := winui.SingleInstance(`Local\GFSync-SingleInstance`)
 	if !first {
-		winui.Info(appName, "GF Sync 已經在執行了，請看螢幕右下角工作列的綠色圖示。")
+		winui.Info(appName, "GF Sync 已經在執行了，請看螢幕右下角工作列的公會盾牌圖示。")
 		return
 	}
 	defer func() { _ = mutex }()
@@ -83,15 +82,15 @@ func main() {
 		lg.Printf("using API base %s", base)
 	}
 
-	eng := engine.New(engine.Config{
+	a := &app{lg: lg, dir: dir, site: strings.TrimRight(base, "/") + "/pages/forever"}
+	a.eng = engine.New(engine.Config{
 		DataDir:     dir,
 		Client:      client,
 		Tokens:      secret.NewDPAPI(dir),
-		OpenBrowser: winui.OpenURL,
+		OpenBrowser: a.openPairingPage,
 		Logf:        lg.Printf,
-		AutoPair:    true,
+		AutoPair:    true, // first start after install opens the pairing page by itself
 	})
-	a := &app{eng: eng, lg: lg, dir: dir, site: strings.TrimRight(base, "/") + "/pages/forever"}
 	systray.Run(a.onReady, a.onExit)
 }
 
@@ -111,6 +110,8 @@ type app struct {
 	once        sync.Once
 	askedFolder bool
 	shownCode   string
+	rendered    bool // render has run at least once
+	prevPaired  bool // Paired at the previous render
 	mu          sync.Mutex
 }
 
@@ -272,10 +273,41 @@ func (a *app) render(s engine.Status) {
 			a.pickFolder()
 		}()
 	}
-	if s.PairingCode != "" && s.PairingCode != a.shownCode {
-		a.shownCode = s.PairingCode
-		code := formatCode(s.PairingCode)
-		go winui.Info(appName, fmt.Sprintf(
-			"已經幫你開啟瀏覽器。\n\n請用 Discord 登入公會網站，確認畫面上的配對碼是\n\n%s\n\n再按「允許這台電腦同步」。完成後這個視窗可以關掉。", code))
+	if s.Ready {
+		if a.rendered && !a.prevPaired && s.Paired {
+			// The one and only "it worked" message; after this GF Sync stays quiet.
+			go a.notify(pairedTitle, pairedText)
+		}
+		a.rendered, a.prevPaired = true, s.Paired
+	}
+}
+
+// openPairingPage is the engine's OpenBrowser. A player who just installed
+// GF Sync sees the browser open by itself plus a small notification with
+// the code; only when the browser cannot be opened do we show a dialog with
+// the address to type in.
+func (a *app) openPairingPage(url string) error {
+	err := winui.OpenURL(url)
+	code := formatCode(a.eng.Status().PairingCode)
+	a.mu.Lock()
+	first := code != a.shownCode
+	a.shownCode = code
+	a.mu.Unlock()
+	switch {
+	case err != nil:
+		a.lg.Printf("pair: open browser: %v", err)
+		go winui.Info(appName, browserFailedText(url, code))
+	case first:
+		go a.notify(pairingTitle, pairingText(code))
+	}
+	return err
+}
+
+// notify shows a Windows notification, falling back to a dialog when the
+// notification cannot be shown.
+func (a *app) notify(title, text string) {
+	if err := winui.Notify(title, text); err != nil {
+		a.lg.Printf("notify: %v", err)
+		winui.Info(appName, title+"\n\n"+text)
 	}
 }

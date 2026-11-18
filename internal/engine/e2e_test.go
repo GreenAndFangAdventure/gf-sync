@@ -409,6 +409,37 @@ func TestE2EPause(t *testing.T) {
 	h.waitFor("upload after resume", func() bool { return h.receivedIDs()["a:1:character.self"] })
 }
 
+// A new player's first start after install or boot: the site is unreachable
+// at first, then pairing starts by itself and the browser opens once.
+func TestE2EFirstRunPairsWithoutMenu(t *testing.T) {
+	h := newHarness(t)
+	h.mock.FailStartNext(503, 2)
+	h.writeSV("A", sv(2, true, "a:1:character.self"))
+	h.start()
+	h.waitFor("waiting-for-network notice", func() bool {
+		return strings.Contains(h.eng.Status().LastError, "自動開始配對")
+	})
+	h.waitFor("paired and uploaded", func() bool {
+		s := h.eng.Status()
+		return s.Ready && s.Paired && s.LastError == "" && h.receivedIDs()["a:1:character.self"]
+	})
+	h.logMu.Lock()
+	defer h.logMu.Unlock()
+	if len(h.opened) != 1 {
+		t.Fatalf("browser opened %d times, want 1", len(h.opened))
+	}
+}
+
+func TestE2EPairingStartRejected(t *testing.T) {
+	h := newHarness(t)
+	h.mock.FailStartNext(400, 1)
+	h.start()
+	h.waitFor("gave up on 400", func() bool {
+		s := h.eng.Status()
+		return !s.Paired && s.PairingCode == "" && strings.Contains(s.LastError, "無法開始配對")
+	})
+}
+
 func TestE2EPairingDenied(t *testing.T) {
 	h := newHarness(t)
 	h.cfg.OpenBrowser = func(u string) error {

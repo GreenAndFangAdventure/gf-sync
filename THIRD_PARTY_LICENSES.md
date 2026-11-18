@@ -10,9 +10,15 @@ GF Sync 本身以 MIT 授權發布（見 `LICENSE`）。下列相依套件都是
 | [github.com/godbus/dbus/v5](https://github.com/godbus/dbus) | v5.1.0 | BSD-2-Clause | systray 的相依套件，有連結進 GFSync.exe |
 | [github.com/tc-hib/winres](https://github.com/tc-hib/winres) | v0.3.1 | 0BSD | 只在建置時使用（產生版本資訊、manifest、圖示），不在 exe 內 |
 | [github.com/nfnt/resize](https://github.com/nfnt/resize) | v0.0.0-20180221191011-83c6a9932646 | ISC | winres 的相依套件，只在建置時使用 |
-| [golang.org/x/image](https://pkg.go.dev/golang.org/x/image) | v0.48.0 | BSD-3-Clause | winres 的相依套件，只在建置時使用 |
+| [golang.org/x/image](https://pkg.go.dev/golang.org/x/image) | v0.48.0 | BSD-3-Clause | 只在建置時使用（winres 的相依套件；`cmd/mkres` 用它縮放徽章），不在 exe 內 |
 
 安裝檔由 [Inno Setup](https://jrsoftware.org/isinfo.php) 產生（Inno Setup License，允許用於商業與非商業軟體）。Inno Setup 是建置工具，不是 GF Sync 的相依套件。
+
+## 不在開源授權範圍內：公會徽章
+
+`assets/brand/guild-emblem-source.png`，以及由它產生、嵌入 GFSync.exe 與安裝檔的程式圖示和工作列圖示，是「綠皮與獠牙冒險事務所」的徽章，**保留所有權利**，不適用 MIT 或上列任何授權。詳見 [`assets/brand/README.md`](assets/brand/README.md)。
+
+The guild emblem in `assets/brand/` and the icons derived from it are **not** covered by the MIT license or any license above; all rights reserved.
 
 以下是各授權的全文。
 

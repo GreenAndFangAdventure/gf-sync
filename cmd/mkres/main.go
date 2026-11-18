@@ -11,8 +11,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"image"
-	"image/color"
 	"log"
 	"os"
 	"strconv"
@@ -20,8 +18,6 @@ import (
 
 	"github.com/tc-hib/winres"
 	"github.com/tc-hib/winres/version"
-
-	"gfsync/internal/icon"
 )
 
 const (
@@ -38,9 +34,15 @@ func main() {
 	ver := flag.String("version", "0.0.0", "product version, e.g. 0.1.0")
 	syso := flag.String("syso", "", "output .syso path")
 	ico := flag.String("ico", "", "output .ico path (installer icon)")
+	preview := flag.String("preview", "", "output .png preview of every icon size and tray state")
 	flag.Parse()
-	if *syso == "" && *ico == "" {
-		log.Fatal("nothing to do: pass -syso and/or -ico")
+	if *syso == "" && *ico == "" && *preview == "" {
+		log.Fatal("nothing to do: pass -syso, -ico and/or -preview")
+	}
+	if *preview != "" {
+		if err := writePreview(*preview); err != nil {
+			log.Fatal(err)
+		}
 	}
 	nums, err := numeric(*ver)
 	if err != nil {
@@ -115,13 +117,6 @@ func main() {
 	}
 }
 
-func makeIcon() (*winres.Icon, error) {
-	var imgs []image.Image
-	for _, s := range []int{16, 24, 32, 48, 64, 128, 256} {
-		imgs = append(imgs, icon.Image(s, icon.Green, color.NRGBA{}))
-	}
-	return winres.NewIconFromImages(imgs)
-}
 
 // numeric turns "0.1.0" or "0.1.0-beta1" into {0,1,0,0}.
 func numeric(v string) ([4]uint16, error) {

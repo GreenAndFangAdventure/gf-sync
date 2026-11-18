@@ -47,6 +47,7 @@ type Config struct {
 
 // Status is a snapshot for the UI.
 type Status struct {
+	Ready       bool // state and token have been loaded (Run has started)
 	GameDir     string
 	NeedGameDir bool
 	Files       int
@@ -261,6 +262,7 @@ func (e *Engine) Status() Status {
 func (e *Engine) statusLocked() Status {
 	s := Status{
 		GameDir:     e.gameDir,
+		Ready:       e.initialized,
 		NeedGameDir: e.initialized && e.gameDir == "",
 		Files:       len(e.files),
 		Paired:      e.token != "",
@@ -586,6 +588,19 @@ func (e *Engine) StartPairing() {
 	go e.pair(ctx)
 }
 
+// pairRetryMax caps the wait between attempts to start pairing.
+const pairRetryMax = 5 * time.Minute
+
+// retryableStart reports whether a failed device/start is worth retrying:
+// network errors, 429 and 5xx. Other HTTP errors (4xx) will not fix themselves.
+func retryableStart(err error) bool {
+	var he *api.HTTPError
+	if errors.As(err, &he) {
+		return he.Status == 429 || he.Status >= 500
+	}
+	return true
+}
+
 func (e *Engine) endPairing(msg string) {
 	e.mu.Lock()
 	if e.pairing != nil {
@@ -601,12 +616,42 @@ func (e *Engine) endPairing(msg string) {
 
 func (e *Engine) pair(ctx context.Context) {
 	c := e.cfg.Client
-	ds, err := c.StartDevice(ctx)
-	if err != nil {
-		e.cfg.Logf("pair: start failed: %v", err)
-		e.endPairing("無法開始配對，請確認網路後再試一次")
-		return
+	// Starting can fail right after boot (autostart runs before the network
+	// is up) or while the site is briefly down. Keep retrying those cases
+	// quietly so a new player never has to find the tray menu.
+	wait := e.cfg.BackoffMin
+	var ds *api.DeviceStart
+	for {
+		var err error
+		ds, err = c.StartDevice(ctx)
+		if err == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if !retryableStart(err) {
+			e.cfg.Logf("pair: start failed: %v", err)
+			e.endPairing("無法開始配對，請稍後在選單按「配對這台電腦」")
+			return
+		}
+		e.cfg.Logf("pair: start failed: %v; retry in %s", err, wait)
+		e.mu.Lock()
+		e.lastErr = "無法連線到公會網站，連上網路後會自動開始配對"
+		e.mu.Unlock()
+		e.notify()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if wait *= 2; wait > pairRetryMax {
+			wait = pairRetryMax
+		}
 	}
+	e.mu.Lock()
+	e.lastErr = ""
+	e.mu.Unlock()
 	url := c.SafeVerifyURL(ds)
 	e.mu.Lock()
 	if e.pairing != nil {

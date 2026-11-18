@@ -50,14 +50,15 @@ type Server struct {
 	ExpiresIn int
 	BaseURL   string // used to build verifyUrl; set by the caller
 
-	pairings map[string]*pairing // by deviceCode
-	devices  map[string]*device  // by token hash
-	seen     map[string]string   // id -> first status
-	received []json.RawMessage
-	labels   []string
-	calls    int
-	failures []failure
-	nextID   int
+	pairings      map[string]*pairing // by deviceCode
+	devices       map[string]*device  // by token hash
+	seen          map[string]string   // id -> first status
+	received      []json.RawMessage
+	labels        []string
+	calls         int
+	failures      []failure
+	startFailures []failure
+	nextID        int
 }
 
 // New returns a mock with short intervals.
@@ -118,6 +119,12 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.startFailures) > 0 {
+		f := s.startFailures[0]
+		s.startFailures = s.startFailures[1:]
+		writeJSON(w, f.status, map[string]string{"error": "test_failure"})
+		return
+	}
 	s.labels = append(s.labels, body.Label)
 	p := &pairing{
 		label: body.Label, clientVersion: body.ClientVersion,
@@ -242,6 +249,15 @@ func (s *Server) FailNext(status, retryAfter, times int) {
 	defer s.mu.Unlock()
 	for i := 0; i < times; i++ {
 		s.failures = append(s.failures, failure{status, retryAfter})
+	}
+}
+
+// FailStartNext makes the next device/start calls fail with status.
+func (s *Server) FailStartNext(status, times int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := 0; i < times; i++ {
+		s.startFailures = append(s.startFailures, failure{status: status})
 	}
 }
 
