@@ -31,6 +31,8 @@ const (
 	mbTopMost     = 0x40000
 	mbSetFg       = 0x10000
 	idYes         = 6
+	idNo          = 7
+	mbYesNoCancel = 0x3
 )
 
 func msg(text, title string, flags uintptr) int {
@@ -48,6 +50,8 @@ func Warn(title, text string) { msg(text, title, mbOK|mbIconWarning) }
 
 // YesNo asks a question.
 func YesNo(title, text string) bool { return msg(text, title, mbYesNo|mbIconInfo) == idYes }
+
+func yesNoCancel(title, text string) int { return msg(text, title, mbYesNoCancel|mbIconInfo) }
 
 // OpenURL opens an http(s) URL in the default browser. Other schemes are
 // refused so a URL from the network can never launch a program.

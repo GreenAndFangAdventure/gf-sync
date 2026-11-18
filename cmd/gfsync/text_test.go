@@ -75,6 +75,31 @@ func TestExpiredPairing(t *testing.T) {
 	}
 }
 
+func TestClipboardCodeIsOnlyTheCode(t *testing.T) {
+	for in, want := range map[string]string{
+		"ABCDEFGH":        "ABCDEFGH",
+		"abcd-efgh":       "ABCDEFGH",
+		" AB CD-EF\tGH\n": "ABCDEFGH",
+		"":                "",
+		"AB":              "",
+	} {
+		if got := clipboardCode(engine.Status{PairingCode: in}); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+	s := engine.Status{PairingCode: "ABCDEFGH", PairingURL: "https://x/pages/sync-pair?code=ABCDEFGH", Paired: false}
+	got := clipboardCode(s)
+	if got != "ABCDEFGH" || strings.ContainsAny(got, " -\t\n") {
+		t.Fatalf("clipboard %q", got)
+	}
+	if copyMenuText(s) != "複製配對碼（ABCD-EFGH）" {
+		t.Fatalf("menu %q", copyMenuText(s))
+	}
+	if !strings.Contains(copiedText(got), "已複製") {
+		t.Fatal("copied text")
+	}
+}
+
 func TestFindUninstaller(t *testing.T) {
 	dir := t.TempDir()
 	if findUninstaller(dir) != "" {

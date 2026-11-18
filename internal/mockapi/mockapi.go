@@ -261,6 +261,18 @@ func (s *Server) FailStartNext(status, times int) {
 	}
 }
 
+// DeviceCodes returns every device code handed out (tests check that it
+// never leaks into the client's status).
+func (s *Server) DeviceCodes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for c := range s.pairings {
+		out = append(out, c)
+	}
+	return out
+}
+
 // Received returns every accepted item so far.
 func (s *Server) Received() []json.RawMessage {
 	s.mu.Lock()

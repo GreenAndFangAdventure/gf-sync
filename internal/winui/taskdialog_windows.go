@@ -11,19 +11,27 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Dialog is a Windows task dialog with one extra command button (for
-// example 「重新開啟配對頁」) and a 「關閉」 button. Pressing the extra
-// button calls OnButton and keeps the dialog open. Close dismisses it from
-// another goroutine (for example when pairing finishes).
+// DialogButton is an extra command button. Pressing it calls OnClick on the
+// dialog's own thread and keeps the dialog open; a non-empty return value
+// replaces the footer text (for example 「已複製」). Do slow work in a
+// goroutine.
+type DialogButton struct {
+	Label   string
+	OnClick func() (footer string)
+}
+
+// Dialog is a Windows task dialog with up to two extra command buttons and
+// a 「關閉」 button. Close dismisses it from another goroutine (for example
+// when pairing finishes).
 //
 // Task dialogs need Common Controls v6, which GFSync.exe's manifest asks
-// for. Without it (go run, tests) Show falls back to a message box.
+// for. Without it (go run, tests) Show falls back to message boxes.
 type Dialog struct {
 	Title       string
 	Instruction string // large first line
 	Content     string
-	Button      string // extra command button label
-	OnButton    func()
+	Footer      string // small text at the bottom; must be non-empty to be updatable
+	Buttons     []DialogButton
 
 	mu     sync.Mutex
 	hwnd   uintptr
@@ -36,6 +44,7 @@ var (
 	procSetWindowPos     = user32.NewProc("SetWindowPos")
 	procSetForegroundWin = user32.NewProc("SetForegroundWindow")
 	procPostMessage      = user32.NewProc("PostMessageW")
+	procSendMessage      = user32.NewProc("SendMessageW")
 
 	dialogsMu sync.Mutex
 	dialogs   = map[uintptr]*tdCall{}
@@ -48,11 +57,14 @@ const (
 	tdcbfCloseButton = 0x0020
 	tdIconInfo       = 0xFFFD // TD_INFORMATION_ICON = MAKEINTRESOURCEW(-3)
 	idClose          = 8
-	buttonID         = 100
+	firstButtonID    = 100
 
 	tdnCreated       = 0
 	tdnButtonClicked = 2
 	tdnDestroyed     = 5
+
+	tdmSetElementText = 0x0400 + 108 // TDM_SET_ELEMENT_TEXT
+	tdeFooter         = 2
 
 	wmClose      = 0x0010
 	hwndTopmost  = ^uintptr(0) // (HWND)-1
@@ -61,25 +73,53 @@ const (
 	swpShowWin   = 0x0040
 	sFalse       = 1
 	tdConfigSize = 160 // sizeof(TASKDIALOGCONFIG) on amd64 (packed)
+	tdButtonSize = 12  // sizeof(TASKDIALOG_BUTTON) on amd64 (packed)
 )
 
 // Show blocks until the dialog is closed.
 func (d *Dialog) Show() {
-	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
+	if d.isClosed() {
 		return
 	}
-	d.mu.Unlock()
 	if err := d.showTaskDialog(); err != nil {
-		// Fallback: a plain message box. Yes = the extra button.
-		for {
-			text := d.Instruction + "\n\n" + d.Content + "\n\n按「是」" + d.Button + "，按「否」關閉。"
-			if !YesNo(d.Title, text) || d.isClosed() {
+		d.showFallback()
+	}
+}
+
+// showFallback uses message boxes: 是 = first button, 否 = second button.
+func (d *Dialog) showFallback() {
+	for !d.isClosed() {
+		text := d.Instruction + "\n\n" + d.Content
+		if d.Footer != "" {
+			text += "\n\n" + d.Footer
+		}
+		var choice int
+		switch len(d.Buttons) {
+		case 0:
+			Info(d.Title, text)
+			return
+		case 1:
+			if YesNo(d.Title, text+"\n\n按「是」"+d.Buttons[0].Label+"，按「否」關閉。") {
+				choice = 0
+			} else {
 				return
 			}
-			if d.OnButton != nil {
-				d.OnButton()
+		default:
+			switch yesNoCancel(d.Title, text+"\n\n按「是」"+d.Buttons[0].Label+"，按「否」"+d.Buttons[1].Label+"，按「取消」關閉。") {
+			case idYes:
+				choice = 0
+			case idNo:
+				choice = 1
+			default:
+				return
+			}
+		}
+		if d.isClosed() {
+			return
+		}
+		if b := d.Buttons[choice]; b.OnClick != nil {
+			if f := b.OnClick(); f != "" {
+				d.Footer = f
 			}
 		}
 	}
@@ -106,10 +146,19 @@ func (d *Dialog) isClosed() bool {
 // It lives in the dialogs map, so it is on the heap and never moves (the
 // callback runs on this goroutine and could otherwise grow its stack).
 type tdCall struct {
-	d                            *Dialog
-	cfg                          [tdConfigSize]byte
-	btn                          [12]byte
-	title, instr, content, label []uint16
+	d                             *Dialog
+	cfg                           [tdConfigSize]byte
+	btns                          []byte
+	title, instr, content, footer []uint16
+	labels                        [][]uint16
+	newFooter                     []uint16 // last footer set by a button
+}
+
+func ptr(u []uint16) uint64 {
+	if len(u) == 0 {
+		return 0
+	}
+	return uint64(uintptr(unsafe.Pointer(&u[0])))
 }
 
 func (d *Dialog) showTaskDialog() error {
@@ -120,12 +169,19 @@ func (d *Dialog) showTaskDialog() error {
 	t.title, _ = syscall.UTF16FromString(d.Title)
 	t.instr, _ = syscall.UTF16FromString(d.Instruction)
 	t.content, _ = syscall.UTF16FromString(d.Content)
-	t.label, _ = syscall.UTF16FromString(d.Button)
-	title, instr, content, label, btn, c := t.title, t.instr, t.content, t.label, &t.btn, &t.cfg
+	if d.Footer != "" {
+		t.footer, _ = syscall.UTF16FromString(d.Footer)
+	}
+	le := binary.LittleEndian
 
-	// TASKDIALOG_BUTTON, packed: int nButtonID; PCWSTR pszButtonText.
-	binary.LittleEndian.PutUint32(btn[0:], buttonID)
-	binary.LittleEndian.PutUint64(btn[4:], uint64(uintptr(unsafe.Pointer(&label[0]))))
+	// TASKDIALOG_BUTTON[], packed: int nButtonID; PCWSTR pszButtonText.
+	t.btns = make([]byte, tdButtonSize*len(d.Buttons)+1)
+	for i, b := range d.Buttons {
+		l, _ := syscall.UTF16FromString(b.Label)
+		t.labels = append(t.labels, l)
+		le.PutUint32(t.btns[i*tdButtonSize:], uint32(firstButtonID+i))
+		le.PutUint64(t.btns[i*tdButtonSize+4:], ptr(l))
+	}
 
 	dialogsMu.Lock()
 	nextRef++
@@ -139,19 +195,22 @@ func (d *Dialog) showTaskDialog() error {
 	}()
 
 	// TASKDIALOGCONFIG, packed (pshpack1.h), amd64 offsets.
-	le := binary.LittleEndian
-	le.PutUint32(c[0:], tdConfigSize)                                  // cbSize
-	le.PutUint32(c[20:], tdfAllowCancel)                               // dwFlags
-	le.PutUint32(c[24:], tdcbfCloseButton)                             // dwCommonButtons
-	le.PutUint64(c[28:], uint64(uintptr(unsafe.Pointer(&title[0]))))   // pszWindowTitle
-	le.PutUint64(c[36:], tdIconInfo)                                   // pszMainIcon
-	le.PutUint64(c[44:], uint64(uintptr(unsafe.Pointer(&instr[0]))))   // pszMainInstruction
-	le.PutUint64(c[52:], uint64(uintptr(unsafe.Pointer(&content[0])))) // pszContent
-	le.PutUint32(c[60:], 1)                                            // cButtons
-	le.PutUint64(c[64:], uint64(uintptr(unsafe.Pointer(&btn[0]))))     // pButtons
-	le.PutUint32(c[72:], idClose)                                      // nDefaultButton
-	le.PutUint64(c[140:], uint64(tdCB))                                // pfCallback
-	le.PutUint64(c[148:], uint64(ref))                                 // lpCallbackData
+	c := &t.cfg
+	le.PutUint32(c[0:], tdConfigSize)            // cbSize
+	le.PutUint32(c[20:], tdfAllowCancel)         // dwFlags
+	le.PutUint32(c[24:], tdcbfCloseButton)       // dwCommonButtons
+	le.PutUint64(c[28:], ptr(t.title))           // pszWindowTitle
+	le.PutUint64(c[36:], tdIconInfo)             // pszMainIcon
+	le.PutUint64(c[44:], ptr(t.instr))           // pszMainInstruction
+	le.PutUint64(c[52:], ptr(t.content))         // pszContent
+	le.PutUint32(c[60:], uint32(len(d.Buttons))) // cButtons
+	if len(d.Buttons) > 0 {
+		le.PutUint64(c[64:], uint64(uintptr(unsafe.Pointer(&t.btns[0])))) // pButtons
+	}
+	le.PutUint32(c[72:], idClose)        // nDefaultButton
+	le.PutUint64(c[132:], ptr(t.footer)) // pszFooter
+	le.PutUint64(c[140:], uint64(tdCB))  // pfCallback
+	le.PutUint64(c[148:], uint64(ref))   // lpCallbackData
 
 	var pressed int32
 	hr, _, _ := procTaskDialogIndir.Call(uintptr(unsafe.Pointer(&c[0])), uintptr(unsafe.Pointer(&pressed)), 0, 0)
@@ -185,12 +244,17 @@ func taskDialogCallback(hwnd, msg, wParam, lParam, ref uintptr) uintptr {
 		procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpShowWin)
 		procSetForegroundWin.Call(hwnd)
 	case tdnButtonClicked:
-		if wParam == buttonID {
-			if d.OnButton != nil {
-				go d.OnButton()
-			}
-			return sFalse // keep the dialog open
+		i := int(wParam) - firstButtonID
+		if i < 0 || i >= len(d.Buttons) {
+			return 0
 		}
+		if f := d.Buttons[i].OnClick; f != nil {
+			if text := f(); text != "" && len(t.footer) > 0 {
+				t.newFooter, _ = syscall.UTF16FromString(text)
+				procSendMessage.Call(hwnd, tdmSetElementText, tdeFooter, uintptr(unsafe.Pointer(&t.newFooter[0])))
+			}
+		}
+		return sFalse // keep the dialog open
 	case tdnDestroyed:
 		d.mu.Lock()
 		d.hwnd = 0

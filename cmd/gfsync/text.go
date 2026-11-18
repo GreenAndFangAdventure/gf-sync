@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gfsync/internal/engine"
@@ -21,7 +22,36 @@ const (
 	pairedText  = "之後下線就會自動同步，不用再做任何事。"
 )
 
-const reopenButton = "重新開啟配對頁"
+const (
+	reopenButton = "重新開啟配對頁"
+	copyButton   = "複製配對碼"
+	pairFooter   = "配對碼有時間限制；過期了可以從工作列選單重新配對。"
+)
+
+// clipboardCode is exactly what "copy" puts on the clipboard: the pairing
+// code the website issued (the user code), letters and digits only, with no
+// hyphen, spaces or explanation. It never sees the device code or token —
+// engine.Status does not carry them.
+func clipboardCode(s engine.Status) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(s.PairingCode) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() < 4 || b.Len() > 16 {
+		return ""
+	}
+	return b.String()
+}
+
+func copiedText(code string) string {
+	return "已複製配對碼 " + code + "，可以貼到配對頁。"
+}
+
+func copyMenuText(s engine.Status) string {
+	return copyButton + "（" + formatCode(s.PairingCode) + "）"
+}
 
 func pairDialogInstruction(browserOpened bool) string {
 	if browserOpened {
@@ -32,7 +62,7 @@ func pairDialogInstruction(browserOpened bool) string {
 
 // pairDialogText is the body of the pairing dialog.
 func pairDialogText(code, url string, browserOpened bool) string {
-	t := "請用 Discord 登入公會網站，確認畫面上的配對碼是\n\n" + code + "\n\n再按「允許這台電腦同步」。完成後這個視窗會自己關掉。"
+	t := "請用 Discord 登入公會網站，確認畫面上的配對碼是\n\n" + code + "\n\n再按「允許這台電腦同步」。網頁要你輸入配對碼時，可以按「" + copyButton + "」再貼上。完成後這個視窗會自己關掉。"
 	if !browserOpened {
 		t = "無法自動開啟瀏覽器。請按「" + reopenButton + "」再試一次，或自己開啟這個網址：\n" + url + "\n\n" + t
 	}

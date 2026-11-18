@@ -105,6 +105,7 @@ type app struct {
 
 	mState, mSync, mProblem                        *systray.MenuItem
 	mSyncNow, mPause, mPair, mFolder, mSite, mLogs *systray.MenuItem
+	mCopy                                          *systray.MenuItem
 	mPrivacy, mUninstall, mQuit                    *systray.MenuItem
 
 	once        sync.Once
@@ -136,6 +137,8 @@ func (a *app) onReady() {
 	a.mSyncNow = systray.AddMenuItem("立即同步", "重新讀取存檔並上傳")
 	a.mPause = systray.AddMenuItemCheckbox("暫停同步", "暫停後不會上傳，直到取消暫停", false)
 	a.mPair = systray.AddMenuItem("配對這台電腦", "用 Discord 登入公會網站並允許這台電腦")
+	a.mCopy = systray.AddMenuItem(copyButton, "只複製配對碼，可以貼到配對頁")
+	a.mCopy.Hide()
 	a.mFolder = systray.AddMenuItem("選擇遊戲資料夾…", "選擇 World of Warcraft 或 _forever_ 資料夾")
 	a.mSite = systray.AddMenuItem("開啟公會網站", "")
 	a.mLogs = systray.AddMenuItem("開啟記錄檔資料夾", "")
@@ -177,6 +180,10 @@ func (a *app) loop() {
 				a.eng.StartPairing()
 			case actionFolder:
 				go a.pickFolder()
+			}
+		case <-a.mCopy.ClickedCh:
+			if f := a.copyCode(); f != "" {
+				go a.notify("已複製配對碼", f)
 			}
 		case <-a.mSyncNow.ClickedCh:
 			a.eng.SyncNow()
@@ -263,6 +270,12 @@ func (a *app) render(s engine.Status) {
 		a.mPause.Uncheck()
 	}
 	a.mPair.SetTitle(pairMenuText(s))
+	if clipboardCode(s) != "" {
+		a.mCopy.SetTitle(copyMenuText(s))
+		a.mCopy.Show()
+	} else {
+		a.mCopy.Hide()
+	}
 	switch {
 	case s.Paused:
 		systray.SetIcon(icon.Paused)
@@ -317,14 +330,20 @@ func (a *app) openPairingPage(url string) error {
 			Title:       appName,
 			Instruction: pairDialogInstruction(err == nil),
 			Content:     pairDialogText(code, url, err == nil),
-			Button:      reopenButton,
-			OnButton: func() {
-				a.lg.Printf("pair: reopen pairing page")
-				if s := a.eng.Status(); s.PairingURL != "" {
-					if err := winui.OpenURL(s.PairingURL); err != nil {
-						a.lg.Printf("pair: reopen: %v", err)
+			Footer:      pairFooter,
+			Buttons: []winui.DialogButton{
+				{Label: reopenButton, OnClick: func() string {
+					a.lg.Printf("pair: reopen pairing page")
+					if u := a.eng.Status().PairingURL; u != "" {
+						go func() {
+							if err := winui.OpenURL(u); err != nil {
+								a.lg.Printf("pair: reopen: %v", err)
+							}
+						}()
 					}
-				}
+					return ""
+				}},
+				{Label: copyButton, OnClick: a.copyCode},
 			},
 		}
 		a.pairDialog = d
@@ -334,6 +353,21 @@ func (a *app) openPairingPage(url string) error {
 		go d.Show()
 	}
 	return err
+}
+
+// copyCode puts only the pairing code on the clipboard and returns the
+// 「已複製」 text to show, or "" when there is no code.
+func (a *app) copyCode() string {
+	code := clipboardCode(a.eng.Status())
+	if code == "" {
+		return ""
+	}
+	if err := winui.CopyText(code); err != nil {
+		a.lg.Printf("pair: copy code: %v", err)
+		return "無法複製，請手動輸入配對碼。"
+	}
+	a.lg.Printf("pair: code copied to clipboard")
+	return copiedText(code)
 }
 
 // notify shows a Windows notification, falling back to a dialog when the

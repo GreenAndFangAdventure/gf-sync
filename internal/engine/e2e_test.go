@@ -508,6 +508,51 @@ func TestE2EPairingIsLogged(t *testing.T) {
 	}
 }
 
+// "Copy pairing code" copies Status.PairingCode. The status must hold the
+// user code shown on the website and never the device code or token.
+func TestE2EStatusHoldsOnlyTheUserCode(t *testing.T) {
+	h := newHarness(t)
+	release := make(chan struct{})
+	var userCode string
+	h.cfg.OpenBrowser = func(u string) error {
+		pu, _ := url.Parse(u)
+		h.logMu.Lock()
+		userCode = pu.Query().Get("code")
+		h.logMu.Unlock()
+		go func() {
+			<-release
+			h.mock.Approve(pu.Query().Get("code"))
+		}()
+		return nil
+	}
+	h.start()
+	h.waitFor("code shown", func() bool { return h.eng.Status().PairingCode != "" })
+	h.logMu.Lock()
+	uc := userCode
+	h.logMu.Unlock()
+	check := func() {
+		raw, _ := json.Marshal(h.eng.Status())
+		for _, dc := range h.mock.DeviceCodes() {
+			if strings.Contains(string(raw), dc) {
+				t.Fatalf("device code in status: %s", raw)
+			}
+		}
+		if tok, _ := h.tokens.Load(); tok != "" && strings.Contains(string(raw), tok) {
+			t.Fatalf("token in status: %s", raw)
+		}
+	}
+	if got := h.eng.Status().PairingCode; got != uc {
+		t.Fatalf("status code %q, page code %q", got, uc)
+	}
+	check()
+	close(release)
+	h.waitFor("paired", func() bool { return h.eng.Status().Paired })
+	check()
+	if h.eng.Status().PairingCode != "" {
+		t.Fatal("no code to copy after pairing")
+	}
+}
+
 // Nobody pressed "allow": the code expires, the status says so plainly
 // (not "still waiting"), and pairing again from the menu works.
 func TestE2EPairingExpiredThenRetry(t *testing.T) {
