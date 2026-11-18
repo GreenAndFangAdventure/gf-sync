@@ -117,7 +117,6 @@ func main() {
 	}
 }
 
-
 // numeric turns "0.1.0" or "0.1.0-beta1" into {0,1,0,0}.
 func numeric(v string) ([4]uint16, error) {
 	var out [4]uint16

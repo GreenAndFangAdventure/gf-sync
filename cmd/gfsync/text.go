@@ -15,20 +15,57 @@ const appName = "綠皮同步（GF Sync）"
 // privacyURL is the public privacy policy (PRIVACY.md in the gf-sync repo).
 const privacyURL = "https://github.com/GreenAndFangAdventure/gf-sync/blob/main/PRIVACY.md"
 
-// Notifications. Kept short: Windows cuts long notification text.
+// Notification after pairing. Kept short: Windows cuts long notification text.
 const (
-	pairingTitle = "請在瀏覽器按「允許」"
-	pairedTitle  = "GF Sync 已連結"
-	pairedText   = "之後下線就會自動同步，不用再做任何事。"
+	pairedTitle = "GF Sync 已連結"
+	pairedText  = "之後下線就會自動同步，不用再做任何事。"
 )
 
-func pairingText(code string) string {
-	return "用 Discord 登入公會網站，確認配對碼 " + code + "，再按「允許這台電腦同步」。"
+const reopenButton = "重新開啟配對頁"
+
+func pairDialogInstruction(browserOpened bool) string {
+	if browserOpened {
+		return "已經幫你開啟瀏覽器"
+	}
+	return "請開啟配對頁"
 }
 
-func browserFailedText(url, code string) string {
-	return "無法自動開啟瀏覽器。\n\n請自己開啟下面的網址，用 Discord 登入後確認配對碼是 " + code +
-		"，再按「允許這台電腦同步」：\n\n" + url
+// pairDialogText is the body of the pairing dialog.
+func pairDialogText(code, url string, browserOpened bool) string {
+	t := "請用 Discord 登入公會網站，確認畫面上的配對碼是\n\n" + code + "\n\n再按「允許這台電腦同步」。完成後這個視窗會自己關掉。"
+	if !browserOpened {
+		t = "無法自動開啟瀏覽器。請按「" + reopenButton + "」再試一次，或自己開啟這個網址：\n" + url + "\n\n" + t
+	}
+	return t + "\n\n找不到這個頁面時，按「" + reopenButton + "」。GF Sync 會常駐在右下角工作列（圖示可能收在「^」裡）。"
+}
+
+type action int
+
+const (
+	actionNone action = iota
+	actionPair
+	actionFolder
+)
+
+// problemAction is what clicking the ⚠ line in the menu does.
+func problemAction(s engine.Status) action {
+	switch {
+	case s.NeedGameDir:
+		return actionFolder
+	case !s.Paired && !s.Pairing:
+		return actionPair
+	}
+	return actionNone
+}
+
+func pairMenuText(s engine.Status) string {
+	switch {
+	case s.PairExpired:
+		return engine.MsgPairExpired
+	case s.Paired:
+		return "重新配對"
+	}
+	return "配對這台電腦"
 }
 
 const uninstallPrompt = "要從這台電腦移除 GF Sync 嗎？\n\n" +
@@ -46,6 +83,8 @@ func pairText(s engine.Status) string {
 	switch {
 	case s.PairingCode != "":
 		return "配對中，配對碼 " + formatCode(s.PairingCode)
+	case s.PairExpired:
+		return "配對碼已過期"
 	case s.Paired:
 		return "已配對"
 	default:

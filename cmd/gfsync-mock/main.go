@@ -21,6 +21,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "listen address (loopback only)")
 	autoApprove := flag.Bool("auto-approve", false, "approve pairing codes without clicking")
 	fail := flag.Int("fail", 0, "make the first N uploads fail with HTTP 503")
+	expires := flag.Int("expires", 600, "pairing code lifetime in seconds")
 	flag.Parse()
 
 	host, _, err := net.SplitHostPort(*addr)
@@ -29,6 +30,7 @@ func main() {
 	}
 	m := mockapi.New()
 	m.Interval = 2
+	m.ExpiresIn = *expires
 	m.BaseURL = "http://" + *addr
 	if *fail > 0 {
 		m.FailNext(503, 0, *fail)

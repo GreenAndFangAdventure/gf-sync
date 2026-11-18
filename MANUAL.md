@@ -19,9 +19,11 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
 3. 預期：
    - 工作列右下角出現公會盾牌圖示（右下角黃點＝尚未配對）。
    - 瀏覽器自動開啟 `http://127.0.0.1:8787/pages/sync-pair?code=XXXXXXXX`。
-   - 右下角出現 Windows 通知「請在瀏覽器按「允許」」，內容有 `XXXX-XXXX` 格式的配對碼，和網頁上的一致。**不會**跳出需要按「確定」的視窗。
+   - 跳出「已經幫你開啟瀏覽器」視窗（在最上層，不會被瀏覽器蓋住），顯示 `XXXX-XXXX` 格式的配對碼，和網頁上的一致，並有「重新開啟配對頁」和「關閉」兩個按鈕。按「重新開啟配對頁」會再開一次網頁，視窗不會關掉。
+   - `%APPDATA%\GFSync\gfsync.log` 依序出現 `pair: starting`、`pair: start ok, code expires in …s`、`pair: browser opened`、`pair: poll: waiting for approval`。記錄檔裡**不應該**出現配對碼。
 4. 在網頁按「允許這台電腦同步」。
-5. 預期：幾秒內圖示的黃點消失，出現一次通知「GF Sync 已連結：之後下線就會自動同步…」；右鍵選單顯示「狀態：已配對」。之後重新啟動 GF Sync 不會再出現這個通知。
+5. 預期：幾秒內配對視窗自己關掉、圖示的黃點消失，出現一次通知「GF Sync 已連結：之後下線就會自動同步…」；右鍵選單顯示「狀態：已配對」；記錄檔有 `pair: device paired`。之後重新啟動 GF Sync 不會再出現這個通知。
+5a. 配對碼過期：刪掉 `%APPDATA%\GFSync\token.dat`，用 `go run ./cmd/gfsync-mock -expires 30` 重新啟動模擬伺服器和 GF Sync，不要按「允許」。預期：時間到後配對視窗自己關掉；滑鼠移到圖示上顯示「配對碼已過期，點這裡重新配對」；選單最上面的 ⚠ 那行和「配對」項目也是這句話，點下去會重新開始配對；記錄檔有 `pair: code expired` 或 `pair: ended by the website`。
 6. 再開一次 `GFSync.exe`：預期跳出「GF Sync 已經在執行了」，不會出現第二個圖示。
 
 ## 2. 遊戲存檔 → 上傳

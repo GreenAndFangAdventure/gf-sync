@@ -38,23 +38,40 @@ func TestTexts(t *testing.T) {
 	}
 }
 
-func TestNotificationTexts(t *testing.T) {
-	// Windows limits notification text to 255 characters and titles to 63.
-	for _, s := range []string{pairingTitle, pairedTitle} {
-		if n := len([]rune(s)); n > 63 {
-			t.Errorf("title %q is %d runes", s, n)
-		}
+func TestPairingTexts(t *testing.T) {
+	// Windows limits notification titles to 63 and text to 255 characters.
+	if len([]rune(pairedTitle)) > 63 || len([]rune(pairedText)) > 255 {
+		t.Fatal("paired notification too long")
 	}
-	for _, s := range []string{pairedText, pairingText("ABCD-EFGH")} {
-		if n := len([]rune(s)); n > 255 {
-			t.Errorf("text %q is %d runes", s, n)
-		}
+	ok := pairDialogText("ABCD-EFGH", "https://x/pages/sync-pair?code=ABCDEFGH", true)
+	if !strings.Contains(ok, "ABCD-EFGH") || !strings.Contains(ok, reopenButton) || !strings.Contains(ok, "^") {
+		t.Fatalf("dialog text: %s", ok)
 	}
-	if !strings.Contains(pairingText("ABCD-EFGH"), "ABCD-EFGH") {
-		t.Fatal("pairing text must show the code")
+	if strings.Contains(ok, "https://") {
+		t.Fatal("no address needed when the browser opened")
 	}
-	if !strings.Contains(browserFailedText("https://x/pages/sync-pair?code=1", "C"), "https://x/pages/sync-pair?code=1") {
+	failed := pairDialogText("ABCD-EFGH", "https://x/pages/sync-pair?code=ABCDEFGH", false)
+	if !strings.Contains(failed, "https://x/pages/sync-pair?code=ABCDEFGH") {
 		t.Fatal("fallback must show the address")
+	}
+}
+
+func TestExpiredPairing(t *testing.T) {
+	s := engine.Status{PairEnded: true, PairExpired: true, LastError: engine.MsgPairExpired}
+	if pairMenuText(s) != "配對碼已過期，點這裡重新配對" {
+		t.Fatalf("menu: %q", pairMenuText(s))
+	}
+	if problemText(s) != engine.MsgPairExpired || problemAction(s) != actionPair {
+		t.Fatalf("problem: %q %v", problemText(s), problemAction(s))
+	}
+	if tt := tooltipText(s, time.Now()); !strings.Contains(tt, "已過期") || strings.Contains(tt, "配對中") {
+		t.Fatalf("tooltip: %q", tt)
+	}
+	if problemAction(engine.Status{Pairing: true, PairingCode: "ABCDEFGH"}) != actionNone {
+		t.Fatal("nothing to click while waiting for approval")
+	}
+	if problemAction(engine.Status{NeedGameDir: true}) != actionFolder {
+		t.Fatal("folder")
 	}
 }
 

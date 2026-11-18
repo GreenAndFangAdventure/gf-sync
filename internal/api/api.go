@@ -76,6 +76,10 @@ var ErrUnauthorized = errors.New("api: device token rejected")
 // ErrPairingEnded means the pairing code expired or was denied.
 var ErrPairingEnded = errors.New("api: pairing code expired or denied")
 
+// ErrPairingDenied is returned (wrapped together with ErrPairingEnded) when
+// the player pressed "deny" on the pairing page.
+var ErrPairingDenied = errors.New("api: pairing denied")
+
 func (c *Client) endpoint(p string) string {
 	u := *c.Base
 	u.Path = strings.TrimRight(u.Path, "/") + p
@@ -227,6 +231,8 @@ func (c *Client) PollDevice(ctx context.Context, deviceCode string) (*PollResult
 		switch {
 		case he.Status == 429:
 			return &PollResult{Pending: true, SlowDown: true}, nil
+		case he.Status == 403:
+			return nil, fmt.Errorf("%w: %w (%v)", ErrPairingEnded, ErrPairingDenied, he)
 		case he.Status >= 400 && he.Status < 500:
 			return nil, fmt.Errorf("%w (%v)", ErrPairingEnded, he)
 		}
@@ -241,6 +247,8 @@ func (c *Client) PollDevice(ctx context.Context, deviceCode string) (*PollResult
 		out.Pending = true
 	case "slow_down":
 		out.Pending, out.SlowDown = true, true
+	case "denied", "access_denied":
+		return nil, fmt.Errorf("%w: %w (%s)", ErrPairingEnded, ErrPairingDenied, out.Error)
 	default:
 		return nil, fmt.Errorf("%w (%s)", ErrPairingEnded, out.Error)
 	}

@@ -110,8 +110,9 @@ type app struct {
 	once        sync.Once
 	askedFolder bool
 	shownCode   string
-	rendered    bool // render has run at least once
-	prevPaired  bool // Paired at the previous render
+	pairDialog  *winui.Dialog // the open "browser opened, code is …" dialog
+	rendered    bool          // render has run at least once
+	prevPaired  bool          // Paired at the previous render
 	mu          sync.Mutex
 }
 
@@ -126,6 +127,8 @@ func (a *app) onReady() {
 	a.mState.Disable()
 	a.mSync = systray.AddMenuItem("上次同步：尚未同步", "")
 	a.mSync.Disable()
+	// Problem line: disabled text, or clickable when there is something to do
+	// (pair again after the code expired, pick the game folder).
 	a.mProblem = systray.AddMenuItem("", "")
 	a.mProblem.Disable()
 	a.mProblem.Hide()
@@ -168,6 +171,13 @@ func (a *app) onExit() {
 func (a *app) loop() {
 	for {
 		select {
+		case <-a.mProblem.ClickedCh:
+			switch problemAction(a.eng.Status()) {
+			case actionPair:
+				a.eng.StartPairing()
+			case actionFolder:
+				go a.pickFolder()
+			}
 		case <-a.mSyncNow.ClickedCh:
 			a.eng.SyncNow()
 		case <-a.mPause.ClickedCh:
@@ -238,6 +248,11 @@ func (a *app) render(s engine.Status) {
 	a.mSync.SetTitle(lastSyncText(s, now))
 	if p := problemText(s); p != "" {
 		a.mProblem.SetTitle("⚠ " + truncate(p, 60))
+		if problemAction(s) != actionNone {
+			a.mProblem.Enable()
+		} else {
+			a.mProblem.Disable()
+		}
 		a.mProblem.Show()
 	} else {
 		a.mProblem.Hide()
@@ -247,11 +262,7 @@ func (a *app) render(s engine.Status) {
 	} else {
 		a.mPause.Uncheck()
 	}
-	if s.Paired {
-		a.mPair.SetTitle("重新配對")
-	} else {
-		a.mPair.SetTitle("配對這台電腦")
-	}
+	a.mPair.SetTitle(pairMenuText(s))
 	switch {
 	case s.Paused:
 		systray.SetIcon(icon.Paused)
@@ -273,6 +284,11 @@ func (a *app) render(s engine.Status) {
 			a.pickFolder()
 		}()
 	}
+	if a.pairDialog != nil && s.PairingCode == "" {
+		// Paired, expired, denied or cancelled: the code is no longer valid.
+		a.pairDialog.Close()
+		a.pairDialog = nil
+	}
 	if s.Ready {
 		if a.rendered && !a.prevPaired && s.Paired {
 			// The one and only "it worked" message; after this GF Sync stays quiet.
@@ -282,23 +298,40 @@ func (a *app) render(s engine.Status) {
 	}
 }
 
-// openPairingPage is the engine's OpenBrowser. A player who just installed
-// GF Sync sees the browser open by itself plus a small notification with
-// the code; only when the browser cannot be opened do we show a dialog with
-// the address to type in.
+// openPairingPage is the engine's OpenBrowser, used both for the automatic
+// pairing on first start and for 「配對這台電腦」 in the menu. It opens the
+// browser and, once per code, shows a dialog with the code and a
+// 「重新開啟配對頁」 button. The dialog closes itself when pairing ends.
 func (a *app) openPairingPage(url string) error {
 	err := winui.OpenURL(url)
 	code := formatCode(a.eng.Status().PairingCode)
 	a.mu.Lock()
 	first := code != a.shownCode
 	a.shownCode = code
+	var d *winui.Dialog
+	if first {
+		if a.pairDialog != nil {
+			a.pairDialog.Close()
+		}
+		d = &winui.Dialog{
+			Title:       appName,
+			Instruction: pairDialogInstruction(err == nil),
+			Content:     pairDialogText(code, url, err == nil),
+			Button:      reopenButton,
+			OnButton: func() {
+				a.lg.Printf("pair: reopen pairing page")
+				if s := a.eng.Status(); s.PairingURL != "" {
+					if err := winui.OpenURL(s.PairingURL); err != nil {
+						a.lg.Printf("pair: reopen: %v", err)
+					}
+				}
+			},
+		}
+		a.pairDialog = d
+	}
 	a.mu.Unlock()
-	switch {
-	case err != nil:
-		a.lg.Printf("pair: open browser: %v", err)
-		go winui.Info(appName, browserFailedText(url, code))
-	case first:
-		go a.notify(pairingTitle, pairingText(code))
+	if d != nil {
+		go d.Show()
 	}
 	return err
 }

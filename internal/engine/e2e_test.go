@@ -134,6 +134,20 @@ func (h *harness) waitFor(what string, cond func() bool) {
 	h.t.Fatalf("timed out waiting for %s\nstatus: %+v\nlogs:\n%s", what, h.eng.Status(), strings.Join(h.logs, "\n"))
 }
 
+func (h *harness) waitForLog(sub string) {
+	h.t.Helper()
+	h.waitFor("log "+sub, func() bool {
+		h.logMu.Lock()
+		defer h.logMu.Unlock()
+		for _, l := range h.logs {
+			if strings.Contains(l, sub) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func (h *harness) receivedIDs() map[string]bool {
 	out := map[string]bool{}
 	for _, raw := range h.mock.Received() {
@@ -450,7 +464,87 @@ func TestE2EPairingDenied(t *testing.T) {
 	h.start()
 	h.waitFor("denied", func() bool {
 		s := h.eng.Status()
-		return !s.Paired && s.PairingCode == "" && strings.Contains(s.LastError, "配對沒有完成")
+		return !s.Paired && s.PairingCode == "" && !s.Pairing && s.PairEnded && !s.PairExpired &&
+			strings.Contains(s.LastError, "配對被拒絕")
+	})
+	h.waitForLog("pair: denied on the website")
+}
+
+// Every pairing step is logged, but never the user code or device code
+// (owner's 2026-11-18 test: the log showed nothing about pairing at all).
+func TestE2EPairingIsLogged(t *testing.T) {
+	h := newHarness(t)
+	var code string
+	h.cfg.OpenBrowser = func(u string) error {
+		pu, _ := url.Parse(u)
+		h.logMu.Lock()
+		code = pu.Query().Get("code")
+		h.logMu.Unlock()
+		go func() {
+			time.Sleep(1500 * time.Millisecond) // at least one "pending" poll first
+			h.mock.Approve(pu.Query().Get("code"))
+		}()
+		return nil
+	}
+	h.start()
+	h.waitFor("paired", func() bool { return h.eng.Status().Paired })
+	for _, want := range []string{
+		"pair: starting",
+		"pair: start ok, code expires in 600s, poll every 1s",
+		"pair: browser opened",
+		"pair: poll: waiting for approval",
+		"pair: device paired (",
+	} {
+		h.waitForLog(want)
+	}
+	h.logMu.Lock()
+	defer h.logMu.Unlock()
+	all := strings.Join(h.logs, "\n")
+	if code == "" || strings.Contains(all, code) {
+		t.Fatalf("user code %q must not be logged:\n%s", code, all)
+	}
+	if tok, _ := h.tokens.Load(); tok == "" || strings.Contains(all, tok) {
+		t.Fatal("token must not be logged")
+	}
+}
+
+// Nobody pressed "allow": the code expires, the status says so plainly
+// (not "still waiting"), and pairing again from the menu works.
+func TestE2EPairingExpiredThenRetry(t *testing.T) {
+	h := newHarness(t)
+	h.mock.ExpiresIn = 2
+	approve := make(chan bool, 4)
+	h.cfg.OpenBrowser = func(u string) error {
+		pu, _ := url.Parse(u)
+		c := pu.Query().Get("code")
+		go func() {
+			if <-approve {
+				h.mock.Approve(c)
+			}
+		}()
+		return nil
+	}
+	approve <- false // the player does not notice the first page
+	h.start()
+	h.waitFor("expired", func() bool {
+		s := h.eng.Status()
+		return s.PairExpired && s.PairEnded && !s.Pairing && s.PairingCode == "" && !s.Paired &&
+			s.LastError == engine.MsgPairExpired
+	})
+	h.waitForLog("pair: ") // something about the end is logged
+	h.logMu.Lock()
+	all := strings.Join(h.logs, "\n")
+	h.logMu.Unlock()
+	if !strings.Contains(all, "pair: code expired") && !strings.Contains(all, "pair: ended by the website") {
+		t.Fatalf("expiry not logged:\n%s", all)
+	}
+
+	h.mock.ExpiresIn = 600
+	approve <- true
+	h.eng.StartPairing() // menu: 「配對碼已過期，點這裡重新配對」
+	h.waitFor("paired after retry", func() bool {
+		s := h.eng.Status()
+		return s.Paired && !s.PairExpired && !s.PairEnded && s.LastError == ""
 	})
 }
 

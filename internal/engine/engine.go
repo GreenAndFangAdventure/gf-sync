@@ -47,6 +47,12 @@ type Config struct {
 
 // Status is a snapshot for the UI.
 type Status struct {
+	// PairEnded: the last pairing attempt ended without success (code
+	// expired, denied or could not start). LastError says which; the UI
+	// offers "pair again".
+	PairEnded   bool
+	PairExpired bool // PairEnded because the code expired
+	Pairing     bool // a pairing attempt is running (maybe still waiting for a code)
 	Ready       bool // state and token have been loaded (Run has started)
 	GameDir     string
 	NeedGameDir bool
@@ -92,6 +98,8 @@ type Engine struct {
 	lastStatus  Status
 	statePath   string
 	initialized bool
+	pairEnded   bool
+	pairExpired bool
 }
 
 // New builds an engine; call Run to start it.
@@ -263,6 +271,9 @@ func (e *Engine) statusLocked() Status {
 	s := Status{
 		GameDir:     e.gameDir,
 		Ready:       e.initialized,
+		PairEnded:   e.pairEnded,
+		PairExpired: e.pairExpired,
+		Pairing:     e.pairing != nil,
 		NeedGameDir: e.initialized && e.gameDir == "",
 		Files:       len(e.files),
 		Paired:      e.token != "",
@@ -584,7 +595,10 @@ func (e *Engine) StartPairing() {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	e.pairing = &pairInfo{cancel: cancel}
+	e.pairEnded, e.pairExpired = false, false
 	e.mu.Unlock()
+	e.cfg.Logf("pair: starting")
+	e.notify()
 	go e.pair(ctx)
 }
 
@@ -601,7 +615,10 @@ func retryableStart(err error) bool {
 	return true
 }
 
-func (e *Engine) endPairing(msg string) {
+func (e *Engine) endPairing(msg string) { e.endPairingAs(msg, false) }
+
+// endPairingAs ends the pairing attempt. A non-empty msg means it failed.
+func (e *Engine) endPairingAs(msg string, expired bool) {
 	e.mu.Lock()
 	if e.pairing != nil {
 		e.pairing.cancel()
@@ -609,9 +626,21 @@ func (e *Engine) endPairing(msg string) {
 	e.pairing = nil
 	if msg != "" {
 		e.lastErr = msg
+		e.pairEnded = e.token == ""
+		e.pairExpired = expired && e.pairEnded
 	}
 	e.mu.Unlock()
 	e.notify()
+}
+
+// MsgPairExpired is shown in the tray tooltip and menu after the code expired.
+const MsgPairExpired = "配對碼已過期，點這裡重新配對"
+
+// pollStats counts poll outcomes for the log (never codes or tokens).
+type pollStats struct{ pending, slowDown, errors int }
+
+func (p pollStats) String() string {
+	return fmt.Sprintf("%d pending, %d slow_down, %d errors", p.pending, p.slowDown, p.errors)
 }
 
 func (e *Engine) pair(ctx context.Context) {
@@ -652,6 +681,8 @@ func (e *Engine) pair(ctx context.Context) {
 	e.mu.Lock()
 	e.lastErr = ""
 	e.mu.Unlock()
+	// Log timings only: the user code and device code stay out of the log.
+	e.cfg.Logf("pair: start ok, code expires in %ds, poll every %ds", ds.ExpiresIn, ds.Interval)
 	url := c.SafeVerifyURL(ds)
 	e.mu.Lock()
 	if e.pairing != nil {
@@ -660,36 +691,60 @@ func (e *Engine) pair(ctx context.Context) {
 	e.mu.Unlock()
 	e.notify()
 	if err := e.cfg.OpenBrowser(url); err != nil {
-		e.cfg.Logf("pair: open browser: %v", err)
+		e.cfg.Logf("pair: open browser failed: %v", err)
+	} else {
+		e.cfg.Logf("pair: browser opened")
 	}
 	deadline := time.Now().Add(time.Duration(ds.ExpiresIn) * time.Second)
 	interval := time.Duration(ds.Interval) * time.Second
+	var stats pollStats
+	last := ""
+	class := func(c string) { // log each change of poll outcome, not every poll
+		if c != last {
+			e.cfg.Logf("pair: poll: %s", c)
+			last = c
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			e.cfg.Logf("pair: cancelled (%v)", stats)
 			return
 		case <-time.After(interval):
 		}
 		if time.Now().After(deadline) {
-			e.endPairing("配對碼已過期，請重新配對")
+			e.cfg.Logf("pair: code expired (%v)", stats)
+			e.endPairingAs(MsgPairExpired, true)
 			return
 		}
 		r, err := c.PollDevice(ctx, ds.DeviceCode)
 		switch {
+		case errors.Is(err, api.ErrPairingDenied):
+			e.cfg.Logf("pair: denied on the website (%v)", stats)
+			e.endPairing("配對被拒絕了。要同步這台電腦，請從選單重新配對")
+			return
 		case errors.Is(err, api.ErrPairingEnded):
-			e.cfg.Logf("pair: %v", err)
-			e.endPairing("配對沒有完成（已過期或被拒絕），請重新配對")
+			// 410 and friends: expired or already used.
+			e.cfg.Logf("pair: ended by the website: %v (%v)", err, stats)
+			e.endPairingAs(MsgPairExpired, true)
 			return
 		case err != nil:
 			if ctx.Err() != nil {
+				e.cfg.Logf("pair: cancelled (%v)", stats)
 				return
 			}
-			e.cfg.Logf("pair: poll: %v", err)
+			stats.errors++
+			class("error")
+			e.cfg.Logf("pair: poll error: %v", err)
 			continue
 		case r.SlowDown:
+			stats.slowDown++
+			class("slow_down")
 			interval += 5 * time.Second
 			continue
 		case r.Pending:
+			stats.pending++
+			class("waiting for approval")
 			if s := time.Duration(r.Interval) * time.Second; s > interval && s <= time.Minute {
 				interval = s
 			}
@@ -704,7 +759,7 @@ func (e *Engine) pair(ctx context.Context) {
 		e.token = r.Token
 		e.lastErr = ""
 		e.mu.Unlock()
-		e.cfg.Logf("pair: device paired")
+		e.cfg.Logf("pair: device paired (%v)", stats)
 		e.endPairing("")
 		e.poke(true)
 		return

@@ -153,3 +153,32 @@ func TestPollTokenWithDeviceIDAndSkipped(t *testing.T) {
 		t.Fatal(res, err)
 	}
 }
+
+func TestPollDeniedVersusExpired(t *testing.T) {
+	cases := []struct {
+		status int
+		body   string
+		denied bool
+	}{
+		{403, `{"error":"denied"}`, true},
+		{200, `{"error":"access_denied"}`, true},
+		{410, `{"error":"expired_token"}`, false},
+		{200, `{"error":"expired_token"}`, false},
+	}
+	for _, c := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(c.status)
+			w.Write([]byte(c.body))
+		}))
+		cl, err := New(srv.URL, "t")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = cl.PollDevice(context.Background(), "d")
+		srv.Close()
+		if !errors.Is(err, ErrPairingEnded) || errors.Is(err, ErrPairingDenied) != c.denied {
+			t.Errorf("%d %s: err %v", c.status, c.body, err)
+		}
+	}
+}
