@@ -674,7 +674,7 @@ func (e *Engine) flush(ctx context.Context) {
 		if api.BodySize(e.cfg.Client.NewUploadRequest(trial)) > api.MaxBodyBytes {
 			if len(batch) == 0 {
 				e.st.Mark(en.ID, state.Record{At: now.Unix(), Status: "rejected", Reason: "too_large_local"})
-				e.cfg.Logf("upload: %s is larger than 1MB, skipped", en.ID)
+				e.cfg.Logf("upload: %s is larger than 1MB, skipped", redact.EntryID(en.ID))
 				continue
 			}
 			break
@@ -719,7 +719,7 @@ func (e *Engine) flush(ctx context.Context) {
 				accepted++
 			}
 			if r.Status == "rejected" {
-				e.cfg.Logf("upload: %s rejected: %s", r.ID, r.Reason)
+				e.cfg.Logf("upload: %s rejected: %s", redact.EntryID(r.ID), r.Reason)
 			}
 		}
 		e.cfg.Logf("upload: %d sent, %d answered, %d accepted", len(batch), answered, accepted)
@@ -761,7 +761,7 @@ func (e *Engine) flush(ctx context.Context) {
 			e.poke(false)
 		} else {
 			e.st.Mark(batch[0].ID, state.Record{At: now.Unix(), Status: "rejected", Reason: fmt.Sprintf("http_%d", he.Status)})
-			e.cfg.Logf("upload: %s refused with HTTP %d, skipped", batch[0].ID, he.Status)
+			e.cfg.Logf("upload: %s refused with HTTP %d, skipped", redact.EntryID(batch[0].ID), he.Status)
 			e.saveLocked()
 		}
 	default:

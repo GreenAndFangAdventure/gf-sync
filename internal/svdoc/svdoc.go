@@ -21,7 +21,17 @@ const FileName = "GreenFangToolkit.lua"
 var KnownKinds = map[string]bool{
 	"character.self":  true,
 	"roster.snapshot": true,
+	// Another member shared their own data in game (decision D-011);
+	// the uploader is the local character that received it.
+	KindMemberReport: true,
 }
+
+// KindMemberReport is data a guild member shared with this player in game.
+const KindMemberReport = "member.report"
+
+// ownLocationKinds may carry a location: the player's own character, and
+// a member's own report (each player can turn sharing off in game).
+var ownLocationKinds = map[string]bool{"character.self": true, KindMemberReport: true}
 
 // Guild is the only guild whose entries GF Sync uploads (upload API v1
 // §3.1). Entries whose uploader.guild is anything else, or missing, never
@@ -154,6 +164,9 @@ func toEntry(item any) (Entry, bool) {
 		return Entry{}, false
 	}
 	stripPrivate(obj, kind)
+	if kind == KindMemberReport && !keepSubject(obj) {
+		return Entry{}, false
+	}
 	raw, err := json.Marshal(obj)
 	if err != nil {
 		return Entry{}, false
@@ -171,8 +184,9 @@ const MaxLocationLen = 60
 
 // stripPrivate removes zone, online and location everywhere (the entry,
 // its payload, every roster member). The one exception (decision D-009):
-// a character.self payload may keep its own location, rebuilt from only
-// the zone and subZone strings. The player can turn this off in game.
+// a character.self or member.report payload may keep its own location,
+// rebuilt from only the zone and subZone strings. Players can turn this
+// off in game. roster.snapshot never keeps one.
 func stripPrivate(entry map[string]any, kind string) {
 	for _, k := range privateKeys {
 		delete(entry, k)
@@ -185,7 +199,7 @@ func stripPrivate(entry map[string]any, kind string) {
 	for _, k := range privateKeys {
 		delete(payload, k)
 	}
-	if kind == "character.self" {
+	if ownLocationKinds[kind] {
 		if l := ownLocation(loc); l != nil {
 			payload["location"] = l
 		}
@@ -220,9 +234,41 @@ func ownLocation(v any) map[string]any {
 	return out
 }
 
-func locationText(v any) (string, bool) {
+func locationText(v any) (string, bool) { return boundedText(v, MaxLocationLen) }
+
+// MaxSubjectLen bounds member.report subject fields, in characters.
+const MaxSubjectLen = 64
+
+// keepSubject rebuilds a member.report payload.subject from only name,
+// realm and guid. name is required (a non-empty string of at most
+// MaxSubjectLen characters), or the entry is malformed; realm and guid are
+// kept only when they are such strings.
+func keepSubject(entry map[string]any) bool {
+	payload, ok := entry["payload"].(map[string]any)
+	if !ok {
+		return false
+	}
+	subj, ok := payload["subject"].(map[string]any)
+	if !ok {
+		return false
+	}
+	name, ok := boundedText(subj["name"], MaxSubjectLen)
+	if !ok {
+		return false
+	}
+	out := map[string]any{"name": name}
+	for _, k := range []string{"realm", "guid"} {
+		if v, ok := boundedText(subj[k], MaxSubjectLen); ok {
+			out[k] = v
+		}
+	}
+	payload["subject"] = out
+	return true
+}
+
+func boundedText(v any, max int) (string, bool) {
 	s, ok := v.(string)
-	if !ok || s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > MaxLocationLen {
+	if !ok || s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > max {
 		return "", false
 	}
 	return s, true

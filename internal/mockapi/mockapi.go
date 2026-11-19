@@ -383,6 +383,8 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			reason = "captured_in_future"
 		case hasPrivateField(raw, it.Kind):
 			reason = "private_field"
+		case it.Kind == "member.report" && !subjectOnly(raw):
+			reason = "bad_subject"
 		}
 		if reason != "" {
 			s.seen[it.ID] = "rejected"
@@ -402,14 +404,14 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 }
 
 // hasPrivateField reports zone, online or location anywhere in an item,
-// except a character.self payload.location holding only the zone and
-// optional subZone strings (decision D-009).
+// except a character.self or member.report payload.location holding only
+// the zone and optional subZone strings (decisions D-009, D-011).
 func hasPrivateField(raw []byte, kind string) bool {
 	var item map[string]any
 	if json.Unmarshal(raw, &item) != nil {
 		return true
 	}
-	if kind == "character.self" {
+	if kind == "character.self" || kind == "member.report" {
 		if p, ok := item["payload"].(map[string]any); ok {
 			if loc, ok := p["location"]; ok {
 				if !ownLocationOnly(loc) {
@@ -454,4 +456,26 @@ func anyPrivateKey(v any) bool {
 		}
 	}
 	return false
+}
+
+// subjectOnly reports whether a member.report payload.subject is present
+// with a name and nothing but name, realm and guid strings (D-011).
+func subjectOnly(raw []byte) bool {
+	var item struct {
+		Payload struct {
+			Subject map[string]any `json:"subject"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(raw, &item) != nil {
+		return false
+	}
+	if n, _ := item.Payload.Subject["name"].(string); n == "" {
+		return false
+	}
+	for k, v := range item.Payload.Subject {
+		if _, ok := v.(string); !ok || (k != "name" && k != "realm" && k != "guid") {
+			return false
+		}
+	}
+	return true
 }

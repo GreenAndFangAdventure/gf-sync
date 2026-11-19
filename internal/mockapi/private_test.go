@@ -24,3 +24,26 @@ func TestHasPrivateField(t *testing.T) {
 		}
 	}
 }
+
+func TestMemberReportChecks(t *testing.T) {
+	if hasPrivateField([]byte(`{"payload":{"subject":{"name":"n"},"location":{"zone":"z","subZone":"s"}}}`), "member.report") {
+		t.Error("member.report may carry its own location")
+	}
+	if !hasPrivateField([]byte(`{"payload":{"location":{"zone":"z","x":1}}}`), "member.report") {
+		t.Error("only zone and subZone")
+	}
+	if !hasPrivateField([]byte(`{"payload":{"online":true}}`), "member.report") {
+		t.Error("online is private")
+	}
+	for raw, want := range map[string]bool{
+		`{"payload":{"subject":{"name":"n","realm":"r","guid":"g"}}}`: true,
+		`{"payload":{"subject":{"name":"n"}}}`:                        true,
+		`{"payload":{"subject":{"realm":"r"}}}`:                       false,
+		`{"payload":{"subject":{"name":"n","note":"x"}}}`:             false,
+		`{"payload":{}}`: false,
+	} {
+		if got := subjectOnly([]byte(raw)); got != want {
+			t.Errorf("subjectOnly(%s) = %v", raw, got)
+		}
+	}
+}

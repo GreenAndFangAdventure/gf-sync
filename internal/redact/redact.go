@@ -11,6 +11,10 @@
 //     recover a name.
 //   - Character GUIDs (Player-<realm>-<hex>): only the last 4 hex digits,
 //     e.g. "Player-…EF01".
+//   - member.report entry ids (data another member shared in game): kept
+//     only when shaped "GUID:number…:member.report" (the GUID is then
+//     shortened as above); any other shape could hold the member's name,
+//     so it becomes "member.report~" and 4 hex digits of SHA-256(id).
 //   - Everything else, including the game folder
 //     (D:\World of Warcraft\_forever_), is kept.
 package redact
@@ -49,6 +53,17 @@ var (
 	accountRE = regexp.MustCompile(`(?i)([\\/]WTF[\\/]Account[\\/])([^\\/:?"<>|\r\n]+)`)
 	guidRE    = regexp.MustCompile(`Player-\d+-([0-9A-Fa-f]{4,})`)
 )
+
+// EntryID masks an outbox id for the log (see the package rules).
+func EntryID(id string) string {
+	if !strings.HasSuffix(id, ":member.report") || reportIDRE.MatchString(id) {
+		return id
+	}
+	sum := sha256.Sum256([]byte(id))
+	return "member.report~" + hex.EncodeToString(sum[:2])
+}
+
+var reportIDRE = regexp.MustCompile(`^Player-\d+-[0-9A-Fa-f]+(:\d+)+:member\.report$`)
 
 // GUID shortens one character GUID; other strings are returned unchanged.
 func GUID(s string) string { return guidRE.ReplaceAllStringFunc(s, shortGUID) }

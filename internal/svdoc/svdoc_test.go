@@ -271,3 +271,64 @@ func TestOwnLocationOnly(t *testing.T) {
 		}
 	}
 }
+
+// Decision D-011: member.report is data another member shared in game.
+// The subject keeps only name, realm and guid; the location follows the
+// character.self rule; the guild filter applies to the uploader.
+// Made-up names.
+func TestMemberReport(t *testing.T) {
+	src := `GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = true, outbox = {
+		{ id = "r1", kind = "member.report", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { subject = { name = "虛構乙", realm = "虛構伺服器", guid = "Player-1-00000B0B", note = "不該上傳", online = true },
+		    reportedAt = 2, level = 60, classToken = "MAGE", zone = "不該上傳", online = true,
+		    professions = { { name = "裁縫", skillLineID = 197, rank = 300, max = 300 } },
+		    location = { zone = "虛構森林", subZone = "虛構營地", x = 1 } } },
+		{ id = "r2", kind = "member.report", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { subject = { name = "虛構丙", realm = 5 }, level = 10 } },
+		{ id = "noname", kind = "member.report", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { subject = { realm = "虛構伺服器" } } },
+		{ id = "nosubject", kind = "member.report", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { level = 10 } },
+		{ id = "longname", kind = "member.report", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { subject = { name = "` + strings.Repeat("名", MaxSubjectLen+1) + `" } } },
+		{ id = "other", kind = "member.report", capturedAt = 1, uploader = { guild = "虛構的別家公會" },
+		  payload = { subject = { name = "虛構丁" } } },
+	} } }`
+	d, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Entries) != 2 || d.Skipped != 3 || d.OtherGuild != 1 {
+		t.Fatalf("entries %d skipped %d otherGuild %d", len(d.Entries), d.Skipped, d.OtherGuild)
+	}
+	var r1, r2 struct {
+		Payload map[string]json.RawMessage
+	}
+	json.Unmarshal(d.Entries[0].JSON, &r1)
+	json.Unmarshal(d.Entries[1].JSON, &r2)
+	if d.Entries[0].Kind != KindMemberReport || d.Entries[0].ID != "r1" {
+		t.Fatalf("kind %q id %q", d.Entries[0].Kind, d.Entries[0].ID)
+	}
+	if s := string(r1.Payload["subject"]); s != `{"guid":"Player-1-00000B0B","name":"虛構乙","realm":"虛構伺服器"}` {
+		t.Errorf("subject = %s", s)
+	}
+	if s := string(r1.Payload["location"]); s != `{"subZone":"虛構營地","zone":"虛構森林"}` {
+		t.Errorf("location = %s", s)
+	}
+	for _, k := range []string{"zone", "online"} {
+		if _, ok := r1.Payload[k]; ok {
+			t.Errorf("payload.%s kept", k)
+		}
+	}
+	for _, k := range []string{"reportedAt", "level", "classToken", "professions"} {
+		if _, ok := r1.Payload[k]; !ok {
+			t.Errorf("payload.%s missing", k)
+		}
+	}
+	if strings.Contains(string(d.Entries[0].JSON), "不該上傳") {
+		t.Errorf("private data leaked: %s", d.Entries[0].JSON)
+	}
+	if s := string(r2.Payload["subject"]); s != `{"name":"虛構丙"}` {
+		t.Errorf("a non-string realm is dropped alone: %s", s)
+	}
+}

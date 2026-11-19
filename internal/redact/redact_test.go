@@ -71,3 +71,24 @@ func TestTextMasksPathsAndGUIDs(t *testing.T) {
 		t.Fatal("the game folder path is kept")
 	}
 }
+
+func TestEntryID(t *testing.T) {
+	for _, id := range []string{
+		"a:1:character.self",
+		guid + ":1700000000:roster.snapshot",
+		guid + ":1700000000:member.report",
+		guid + ":1700000000:2:member.report",
+	} {
+		if EntryID(id) != id {
+			t.Errorf("%q must be kept (Text shortens the GUID)", id)
+		}
+	}
+	odd := "虛構乙-虛構伺服器:1700000000:member.report"
+	m := EntryID(odd)
+	if strings.Contains(m, "虛構") || !strings.HasPrefix(m, "member.report~") || len(m) != len("member.report~0000") {
+		t.Fatalf("EntryID(%q) = %q", odd, m)
+	}
+	if EntryID(odd) != m {
+		t.Fatal("must be stable")
+	}
+}

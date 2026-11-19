@@ -27,7 +27,7 @@ GreenFangToolkitDB = {
 ```lua
 {
   id = "<掃描者 GUID>:<capturedAt>:<kind>",   -- 全域唯一，用來去重
-  kind = "character.self" | "roster.snapshot",  -- 其他 kind 一律忽略
+  kind = "character.self" | "roster.snapshot" | "member.report",  -- 其他 kind 一律忽略
   capturedAt = 1763370000,                      -- Unix 秒
   game = { world = "forever", interface = 16001, realm = "...", locale = "zhTW" },
   uploader = { guid = "...", name = "...", realm = "...", faction = "Horde",
@@ -37,11 +37,12 @@ GreenFangToolkitDB = {
 ```
 
 - `character.self`（角色本人回報）：`level`、`class`、`classToken`、`race`、`raceID`、`professions`（名稱、技能 ID、等級、上限）。
+- `member.report`（其他成員在遊戲內分享給你的**他們自己**的資料；`uploader` 是收到的本機角色，一樣只接受本公會）：`subject = { name, realm, guid }`、`reportedAt`、`level`、`classToken`、`professions`（`name`、`skillLineID`、`rank`、`max`），以及對方同意時的 `location`。`subject` 只保留 `name`、`realm`、`guid` 三個字串（每個最多 64 個字元），沒有 `name` 的項目不上傳。
 - `roster.snapshot`（某位成員看到的整份公會名冊）：`total`，以及每位成員的 `name`、`guid`、`level`、`classToken`、`race`、`raceID`、`guildRank`、`professions`、`professionSource`。
 
-**所在地只有自己的角色。** `character.self` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略；插件預設開啟，玩家可以在「設定」關掉）。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。
+**所在地只有本人的資料。** `character.self` 和 `member.report` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略；插件預設開啟，每位玩家都可以在「設定」關掉）。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。
 
-**其他地方都不包含所在地和在線狀態。** 就算插件的某個版本寫了 `zone`、`online` 或 `location`，GF Sync 上傳前也會把它們從項目本身、payload 和每位成員的資料中移除（`roster.snapshot` 永遠不帶任何成員的所在地）。記錄檔不會記錄所在地。
+**其他地方都不包含所在地和在線狀態。** 就算插件的某個版本寫了 `zone`、`online` 或 `location`，GF Sync 上傳前也會把它們從項目本身、payload 和每位成員的資料中移除（`roster.snapshot` 永遠不帶任何成員的所在地）。記錄檔不會記錄所在地或 `subject` 的名稱；`member.report` 的 id 如果不是「GUID:數字:member.report」的格式，記錄檔只寫 `member.report~` 加 4 碼雜湊。
 
 未知欄位會原樣轉送，由網站決定是否使用。
 
