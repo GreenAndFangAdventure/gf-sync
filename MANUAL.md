@@ -59,11 +59,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
 
 1. 先核對 SHA-256：`Get-FileHash dist\GFSync-Setup-0.1.1.exe -Algorithm SHA256`，和 `SHA256SUMS.txt` 一致。
 2. 執行 `GFSync-Setup-0.1.1.exe`。因為沒有數位簽章，預期 Windows SmartScreen 顯示「Windows 已保護您的電腦」：按「其他資訊」→「仍要執行」。**請截圖給網站下載頁的說明用。**
-3. 預期：先顯示「隱私權政策」頁（內容是 `PRIVACY.md`，中文正常顯示、沒有亂碼）；不會跳 UAC（安裝在 `%LOCALAPPDATA%\Programs\GFSync`）；「開機時自動啟動 GF Sync（建議）」預設勾選；完成頁可勾「現在啟動 GF Sync」。
+3. 預期：先顯示「隱私權政策」頁（內容是 `PRIVACY.md`，中文正常顯示、沒有亂碼）；不會跳 UAC（安裝在 `%LOCALAPPDATA%\Programs\GFSync`）；「開機時自動啟動 GF Sync（建議）」預設勾選、「在桌面建立捷徑」預設**不**勾選；完成頁可勾「現在啟動 GF Sync」。
 4. 檢查開機啟動：按 Win+R 輸入 `shell:startup`，預期有「綠皮同步（GF Sync）」捷徑，指向 `...\Programs\GFSync\GFSync.exe`；登錄檔 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` **不應該**有 `GFSync`（舊版 0.1.0 裝過的除外）。重新開機後圖示自動出現。
 5. 重新安裝並取消勾選自動啟動：預期「啟動」資料夾裡的捷徑被移除。
+   - 桌面捷徑：重新安裝並勾選「在桌面建立捷徑」，預期桌面出現「綠皮同步（GF Sync）」捷徑（公會盾牌圖示），雙擊會啟動 GF Sync（已在執行時會提示看工作列圖示）。再重新安裝一次，預期「在桌面建立捷徑」維持上次的勾選；取消勾選後安裝，預期桌面捷徑被移除。
 6. 防毒：Trend Micro、Windows Defender 有沒有警告或隔離？請記錄偵測名稱。在 `GFSync.exe` 按右鍵 → 內容 → 詳細資料，預期看到公司「綠皮與獠牙冒險事務所」、產品名稱「GF Sync」、檔案描述「GF Sync」、檔案版本與著作權；安裝檔的產品名稱也是「GF Sync」。
-7. 解除安裝：分別試「工作列選單 → 解除安裝 GF Sync…」、「開始」選單的「解除安裝 綠皮同步（GF Sync）」、「設定 → 應用程式」三種方式。預期程式被關閉、`%LOCALAPPDATA%\Programs\GFSync`、`%APPDATA%\GFSync`、「啟動」資料夾的捷徑都移除；魔獸世界資料夾不受影響。
+7. 解除安裝：分別試「工作列選單 → 解除安裝 GF Sync…」、「開始」選單的「解除安裝 綠皮同步（GF Sync）」、「設定 → 應用程式」三種方式。預期程式被關閉、`%LOCALAPPDATA%\Programs\GFSync`、`%APPDATA%\GFSync`、「啟動」資料夾的捷徑、桌面捷徑（如果有）都移除；魔獸世界資料夾不受影響。
 
 8. 如果遇到 GF Sync 讀不到遊戲資料夾或自己的檔案（例如被防毒軟體限制）：
    - 工作列選單的 ⚠ 那一行應該寫「找到遊戲資料夾，但 GF Sync 沒有權限讀取…」或「GF Sync 無法開啟自己的記錄檔／設定與上傳紀錄／配對資料…」，**不應該**寫「找不到魔獸世界：永恆的資料夾」，也不應該跳出選擇資料夾的視窗；點這一行會開啟 README 的「如果被防毒擋下」。

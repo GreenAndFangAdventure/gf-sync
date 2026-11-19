@@ -94,7 +94,7 @@ StatusRunProgram=正在完成安裝…
 StatusRollback=正在復原變更…
 FinishedHeadingLabel=[name] 安裝完成
 FinishedLabelNoIcons=[name] 已經安裝好了。GF Sync 會常駐在右下角工作列（圖示可能收在「^」裡）。%n%n第一次啟動時會自動開啟公會網站，請用 Discord 登入並按「允許這台電腦同步」。
-FinishedLabel=[name] 已經安裝好了。GF Sync 會常駐在右下角工作列（圖示可能收在「^」裡）。%n%n第一次啟動時會自動開啟公會網站，請用 Discord 登入並按「允許這台電腦同步」。%n%n之後也可以從「開始」選單開啟。
+FinishedLabel=[name] 已經安裝好了。GF Sync 會常駐在右下角工作列（圖示可能收在「^」裡）。%n%n第一次啟動時會自動開啟公會網站，請用 Discord 登入並按「允許這台電腦同步」。%n%n之後也可以從「開始」選單（或桌面捷徑，如果有勾選）開啟。
 ClickFinish=按「完成」結束安裝。
 ConfirmUninstall=確定要移除 %1 嗎？這台電腦的配對資料也會一起刪除。
 UninstallStatusLabel=正在移除 %1，請稍候。
@@ -104,6 +104,8 @@ UninstalledAll=%1 已經從你的電腦移除。%n%n如果不再使用，也可�
 
 [Tasks]
 Name: "autostart"; Description: "開機時自動啟動 GF Sync（建議）"
+; 桌面捷徑：預設不勾選。重新安裝時 Inno Setup 會記得上次的選擇。
+Name: "desktopicon"; Description: "在桌面建立捷徑"; Flags: unchecked
 
 [Files]
 Source: "..\dist\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -117,10 +119,14 @@ Name: "{autoprograms}\解除安裝 {#AppName}"; Filename: "{uninstallexe}"
 ; 開機自動啟動：放在目前使用者的「啟動」資料夾，不寫登錄檔 Run 機碼（減少防毒誤判）。
 ; 使用者可以在「工作管理員 → 啟動應用程式」或直接刪除捷徑來關閉。
 Name: "{userstartup}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: autostart
+; 桌面捷徑（目前使用者的桌面）。解除安裝時 Inno Setup 會一起移除。
+Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [InstallDelete]
 ; 重新安裝時取消勾選「開機自動啟動」，就移除之前放的捷徑。
 Type: files; Name: "{userstartup}\{#AppName}.lnk"; Tasks: not autostart
+; 重新安裝時取消勾選「在桌面建立捷徑」，就移除之前放的桌面捷徑。
+Type: files; Name: "{userdesktop}\{#AppName}.lnk"; Tasks: not desktopicon
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "現在啟動 GF Sync"; Flags: nowait postinstall skipifsilent
