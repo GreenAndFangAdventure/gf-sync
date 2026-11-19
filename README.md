@@ -20,7 +20,7 @@
 
 ## 會上傳哪些資料
 
-角色名稱、伺服器、陣營、公會與階級、等級、職業、種族、專業，以及公會名冊快照（成員名稱、等級、職業、種族、階級、專業）。**不會上傳所在地和在線狀態。** 完整欄位與保存方式見 [`PRIVACY.md`](PRIVACY.md)，技術格式見 [`docs/FORMAT.md`](docs/FORMAT.md)。
+角色名稱、伺服器、陣營、公會與階級、等級、職業、種族、專業、自己角色的所在地（區域名稱，預設開啟，可以在工具箱「設定」裡關掉），以及公會名冊快照（成員名稱、等級、職業、種族、階級、專業）。**不會上傳其他成員的所在地，也不會上傳在線狀態。** 完整欄位與保存方式見 [`PRIVACY.md`](PRIVACY.md)，技術格式見 [`docs/FORMAT.md`](docs/FORMAT.md)。
 
 ## 暫停或關閉
 
@@ -68,7 +68,7 @@ go test ./...                                                       # 只跑測�
 | 路徑 | 內容 |
 | --- | --- |
 | `internal/luasv` | Lua 表格字面值解析器，絕不執行程式碼；有深度／大小／節點數上限與 fuzz 測試 |
-| `internal/svdoc` | 解讀 `GreenFangToolkitDB`：只接受 `schemaVersion` 2、遵守 `sync.enabled`、忽略未知 kind、上傳前移除 `zone`／`online` |
+| `internal/svdoc` | 解讀 `GreenFangToolkitDB`：只接受 `schemaVersion` 2、遵守 `sync.enabled`、忽略未知 kind、上傳前移除 `zone`／`online`／`location`（只有 `character.self` 的 `payload.location` 保留 `zone`、`subZone` 兩個字串） |
 | `internal/gamedir` | 找 `_forever_`（登錄檔、各磁碟常見路徑），列出 SavedVariables 檔案 |
 | `internal/watch` | 檔案停止變動 5 秒後才讀 |
 | `internal/api` | 網站 API 用戶端；只接受 https（loopback 例外，供測試） |
@@ -103,7 +103,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 **GF Sync** is a small Windows tray app for the World of Warcraft guild 綠皮與獠牙冒險事務所 ("Green and Fang Adventure"). It reads the SavedVariables file written by the guild's in-game AddOn (read-only, never executing Lua and never modifying game files) and uploads character and roster data to the guild website, greenandfangadventure.com, after a one-time device pairing via Discord login.
 
 - **Install (three steps):** download `GFSync-Setup-<version>.exe` from GitHub Releases, run it and click through (the privacy policy is shown; no admin rights, nothing to change), then allow the device on the guild website with Discord — GF Sync opens the page by itself and shows a "connected" notification when done. Autostart uses a shortcut in the user's Startup folder.
-- **Data:** character name, realm, faction, guild and rank, level, class, race, professions, and guild roster snapshots. Location and online status are never uploaded. See [PRIVACY.md](PRIVACY.md).
+- **Data:** character name, realm, faction, guild and rank, level, class, race, professions, and guild roster snapshots. Your own character's zone is included (on by default, can be turned off in the AddOn's settings); other members' locations and online status are never uploaded. See [PRIVACY.md](PRIVACY.md).
 - **Stop syncing:** turn sync off in the AddOn's settings (or `/gf sync off`), "暫停同步" (Pause) in the tray menu, or revoke the device on the website.
 - **Uninstall:** tray menu "解除安裝 GF Sync…", the Start menu uninstall shortcut, or Windows Settings → Apps.
 - **Build:** Go + Inno Setup 6, `build.ps1 -Version <x.y.z>`; releases are built by GitHub Actions.

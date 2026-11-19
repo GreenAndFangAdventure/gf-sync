@@ -39,7 +39,9 @@ GreenFangToolkitDB = {
 - `character.self`（角色本人回報）：`level`、`class`、`classToken`、`race`、`raceID`、`professions`（名稱、技能 ID、等級、上限）。
 - `roster.snapshot`（某位成員看到的整份公會名冊）：`total`，以及每位成員的 `name`、`guid`、`level`、`classToken`、`race`、`raceID`、`guildRank`、`professions`、`professionSource`。
 
-**不包含所在地（`zone`）和在線狀態（`online`）。** 就算插件的某個版本寫了這兩個欄位，GF Sync 上傳前也會把它們從 payload 和每位成員的資料中移除。
+**所在地只有自己的角色。** `character.self` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略；插件預設開啟，玩家可以在「設定」關掉）。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。
+
+**其他地方都不包含所在地和在線狀態。** 就算插件的某個版本寫了 `zone`、`online` 或 `location`，GF Sync 上傳前也會把它們從項目本身、payload 和每位成員的資料中移除（`roster.snapshot` 永遠不帶任何成員的所在地）。記錄檔不會記錄所在地。
 
 未知欄位會原樣轉送，由網站決定是否使用。
 
@@ -62,7 +64,7 @@ GreenFangToolkitDB = {
 
 ```json
 { "client": { "name": "GFSync", "version": "0.1.1" },
-  "items": [ <outbox entry 轉成 JSON，已移除 zone／online> ] }
+  "items": [ <outbox entry 轉成 JSON，已移除 zone／online，只留自己的 location> ] }
 ```
 
 - 單次最多 50 筆、1MB；GF Sync 自己限制每小時最多 50 次。

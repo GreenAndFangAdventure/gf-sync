@@ -381,7 +381,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			reason = "wrong_guild"
 		case it.CapturedAt > float64(now.Add(10*time.Minute).Unix()):
 			reason = "captured_in_future"
-		case strings.Contains(string(raw), `"zone"`) || strings.Contains(string(raw), `"online"`):
+		case hasPrivateField(raw, it.Kind):
 			reason = "private_field"
 		}
 		if reason != "" {
@@ -399,4 +399,59 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		results = append(results, res)
 	}
 	writeJSON(w, 200, map[string]any{"results": results})
+}
+
+// hasPrivateField reports zone, online or location anywhere in an item,
+// except a character.self payload.location holding only the zone and
+// optional subZone strings (decision D-009).
+func hasPrivateField(raw []byte, kind string) bool {
+	var item map[string]any
+	if json.Unmarshal(raw, &item) != nil {
+		return true
+	}
+	if kind == "character.self" {
+		if p, ok := item["payload"].(map[string]any); ok {
+			if loc, ok := p["location"]; ok {
+				if !ownLocationOnly(loc) {
+					return true
+				}
+				delete(p, "location")
+			}
+		}
+	}
+	return anyPrivateKey(item)
+}
+
+func ownLocationOnly(v any) bool {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, ok := m["zone"].(string); !ok {
+		return false
+	}
+	for k, val := range m {
+		if _, ok := val.(string); !ok || (k != "zone" && k != "subZone") {
+			return false
+		}
+	}
+	return true
+}
+
+func anyPrivateKey(v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			if k == "zone" || k == "online" || k == "location" || anyPrivateKey(val) {
+				return true
+			}
+		}
+	case []any:
+		for _, val := range t {
+			if anyPrivateKey(val) {
+				return true
+			}
+		}
+	}
+	return false
 }

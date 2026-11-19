@@ -77,8 +77,19 @@ func TestAddonSampleFixture(t *testing.T) {
 		t.Fatalf("status %v entries %d skipped %d", d.Status, len(d.Entries), d.Skipped)
 	}
 	for _, e := range d.Entries {
-		if strings.Contains(string(e.JSON), `"zone"`) || strings.Contains(string(e.JSON), `"online"`) {
-			t.Fatalf("private field in %s", e.ID)
+		var m map[string]any
+		if err := json.Unmarshal(e.JSON, &m); err != nil {
+			t.Fatal(err)
+		}
+		// The one allowed place: character.self payload.location (D-009).
+		if p, ok := m["payload"].(map[string]any); ok && e.Kind == "character.self" {
+			delete(p, "location")
+		}
+		b, _ := json.Marshal(m)
+		for _, bad := range []string{`"zone"`, `"online"`, `"location"`} {
+			if strings.Contains(string(b), bad) {
+				t.Fatalf("private field %s in %s", bad, e.ID)
+			}
 		}
 	}
 }
@@ -177,6 +188,86 @@ func TestOnlyOurGuild(t *testing.T) {
 	for _, e := range d.Entries {
 		if strings.Contains(string(e.JSON), "虛構的別家公會") {
 			t.Fatal("other guild in upload")
+		}
+	}
+}
+
+// Decision D-009: only character.self may carry the player's own location,
+// and only as {zone, subZone} strings. Made-up place names.
+func TestOwnLocationOnly(t *testing.T) {
+	long := strings.Repeat("地", MaxLocationLen+1)
+	ok60 := strings.Repeat("地", MaxLocationLen)
+	src := `GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = true, outbox = {
+		{ id = "full", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  zone = "頂層不該上傳", online = true, location = { zone = "頂層不該上傳" },
+		  payload = { level = 10, zone = "不該上傳", online = true,
+		    location = { zone = "虛構森林", subZone = "虛構營地", x = 0.5, y = 0.25, mapID = 1, online = true } } },
+		{ id = "zoneonly", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { location = { zone = "` + ok60 + `", subZone = "` + long + `" } } },
+		{ id = "nozone", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { location = { subZone = "虛構營地" } } },
+		{ id = "toolong", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { location = { zone = "` + long + `", subZone = "虛構營地" } } },
+		{ id = "notstring", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { location = { zone = 5, subZone = { "虛構營地" } } } },
+		{ id = "empty", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { location = { zone = "", subZone = "" } } },
+		{ id = "flat", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { location = "虛構森林" } },
+		{ id = "roster", kind = "roster.snapshot", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" },
+		  payload = { total = 1, location = { zone = "虛構森林" },
+		    members = { { name = "虛構甲", zone = "虛構森林", online = true, location = { zone = "虛構森林" } } } } },
+	} } }`
+	d, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]map[string]any{}
+	for _, e := range d.Entries {
+		var m map[string]any
+		if err := json.Unmarshal(e.JSON, &m); err != nil {
+			t.Fatal(err)
+		}
+		got[e.ID] = m
+	}
+	if len(got) != 8 {
+		t.Fatalf("entries %d", len(got))
+	}
+	loc := func(id string) any { return got[id]["payload"].(map[string]any)["location"] }
+
+	full := got["full"]
+	for _, k := range []string{"zone", "online", "location"} {
+		if _, ok := full[k]; ok {
+			t.Errorf("entry-level %s kept", k)
+		}
+	}
+	p := full["payload"].(map[string]any)
+	if _, ok := p["zone"]; ok {
+		t.Error("payload.zone kept")
+	}
+	if _, ok := p["online"]; ok {
+		t.Error("payload.online kept")
+	}
+	if l, _ := json.Marshal(loc("full")); string(l) != `{"subZone":"虛構營地","zone":"虛構森林"}` {
+		t.Errorf("location = %s (only zone and subZone may stay)", l)
+	}
+	if l, _ := json.Marshal(loc("zoneonly")); string(l) != `{"zone":"`+ok60+`"}` {
+		t.Errorf("a subZone over the limit is dropped alone: %s", l)
+	}
+	for _, id := range []string{"nozone", "toolong", "notstring", "empty", "flat"} {
+		if l := loc(id); l != nil {
+			t.Errorf("%s: location kept: %v", id, l)
+		}
+	}
+	rs, _ := json.Marshal(got["roster"])
+	for _, bad := range []string{`"location"`, `"zone"`, `"online"`} {
+		if strings.Contains(string(rs), bad) {
+			t.Errorf("roster.snapshot keeps %s: %s", bad, rs)
+		}
+	}
+	for id, m := range got {
+		if b, _ := json.Marshal(m); strings.Contains(string(b), "不該上傳") {
+			t.Errorf("%s: zone leaked: %s", id, b)
 		}
 	}
 }

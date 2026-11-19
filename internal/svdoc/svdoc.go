@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"gfsync/internal/luasv"
 )
@@ -152,7 +153,7 @@ func toEntry(item any) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
-	stripPrivate(obj)
+	stripPrivate(obj, kind)
 	raw, err := json.Marshal(obj)
 	if err != nil {
 		return Entry{}, false
@@ -160,17 +161,34 @@ func toEntry(item any) (Entry, bool) {
 	return Entry{ID: id, Kind: kind, JSON: raw}, true
 }
 
-// privateKeys are never uploaded, even if an AddOn version writes them
-// (privacy: no location or online status).
-var privateKeys = []string{"zone", "online"}
+// privateKeys are never uploaded, even if an AddOn version writes them:
+// no online status, and no location except the one allowed below.
+var privateKeys = []string{"zone", "online", "location"}
 
-func stripPrivate(entry map[string]any) {
+// MaxLocationLen bounds location.zone and location.subZone, in characters.
+// Real zone names are far shorter; anything longer is dropped, not cut.
+const MaxLocationLen = 60
+
+// stripPrivate removes zone, online and location everywhere (the entry,
+// its payload, every roster member). The one exception (decision D-009):
+// a character.self payload may keep its own location, rebuilt from only
+// the zone and subZone strings. The player can turn this off in game.
+func stripPrivate(entry map[string]any, kind string) {
+	for _, k := range privateKeys {
+		delete(entry, k)
+	}
 	payload, ok := entry["payload"].(map[string]any)
 	if !ok {
 		return
 	}
+	loc := payload["location"]
 	for _, k := range privateKeys {
 		delete(payload, k)
+	}
+	if kind == "character.self" {
+		if l := ownLocation(loc); l != nil {
+			payload["location"] = l
+		}
 	}
 	if members, ok := payload["members"].([]any); ok {
 		for _, m := range members {
@@ -181,4 +199,31 @@ func stripPrivate(entry map[string]any) {
 			}
 		}
 	}
+}
+
+// ownLocation keeps only {zone, subZone}. zone must be a non-empty string
+// of at most MaxLocationLen characters, or there is no location at all;
+// subZone is optional and dropped alone when it is not such a string.
+func ownLocation(v any) map[string]any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	zone, ok := locationText(m["zone"])
+	if !ok {
+		return nil
+	}
+	out := map[string]any{"zone": zone}
+	if sub, ok := locationText(m["subZone"]); ok {
+		out["subZone"] = sub
+	}
+	return out
+}
+
+func locationText(v any) (string, bool) {
+	s, ok := v.(string)
+	if !ok || s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > MaxLocationLen {
+		return "", false
+	}
+	return s, true
 }

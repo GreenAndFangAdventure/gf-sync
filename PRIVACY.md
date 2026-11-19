@@ -1,6 +1,6 @@
 # GF Sync 隱私權政策（Privacy policy）
 
-最後更新：2026-11-17
+最後更新：2026-11-19
 
 GF Sync（綠皮同步）是「綠皮與獠牙冒險事務所」公會的開源工具。它會把遊戲插件「綠皮冒險工具箱」存下來的角色與公會名冊資料，上傳到公會網站 **greenandfangadventure.com**，讓網站的名冊自動更新。
 
@@ -13,10 +13,13 @@ GF Sync（綠皮同步）是「綠皮與獠牙冒險事務所」公會的開源�
 | 遊戲資訊 | 世界（永恆）、遊戲版本、伺服器、語系 |
 | 上傳者（你登入的角色） | 角色 GUID、角色名稱、伺服器、陣營、公會、公會階級 |
 | 角色本人資料（`character.self`） | 等級、職業、種族、專業技能與等級、資料擷取時間 |
+| 自己角色的所在地（遊戲內可以關閉，預設開啟） | 寫入存檔那一刻（通常是登出時）所在的區域和子區域名稱，只有你自己的角色，不含座標 |
 | 公會名冊（`roster.snapshot`） | 名冊總人數；每位成員的角色名稱、GUID、等級、職業、種族、公會階級、專業 |
 | 配對時 | 電腦名稱（顯示在配對頁和「同步裝置」頁，讓你認得是哪台電腦）、GF Sync 版本 |
 
-**不收集：** 所在地（區域）、在線狀態、聊天內容、帳號密碼、Battle.net 帳號資訊、電腦上的其他檔案。就算插件的某個版本寫入所在地或在線狀態，GF Sync 也會在上傳前移除。
+**不收集：** 其他公會成員的所在地、任何人的在線狀態、座標、聊天內容、帳號密碼、Battle.net 帳號資訊、電腦上的其他檔案。就算插件的某個版本寫入這些資料，GF Sync 也會在上傳前移除；自己角色的所在地也只保留區域和子區域兩個名稱。
+
+**關閉所在地：** 在綠皮冒險工具箱的「設定」裡關掉分享所在地，插件就不會再寫入，GF Sync 也就不會上傳。記錄檔不會記錄所在地。
 
 GF Sync 只讀取 `WTF\Account\*\SavedVariables\GreenFangToolkit.lua`，不會修改任何遊戲檔案。
 
@@ -48,4 +51,4 @@ GF Sync 以 MIT 授權開源，所有行為都可以從原始碼檢查：<https:
 
 ## English summary
 
-GF Sync uploads character and guild-roster data that the in-game AddOn "GreenFang Toolkit" saved to `sync.outbox` to the guild website greenandfangadventure.com (hosted on Cloudflare). Uploaded fields: game world/realm/locale; the uploading character's GUID, name, realm, faction, guild and rank; level, class, race and professions; for roster snapshots, each member's name, GUID, level, class, race, rank and professions; and at pairing time the computer name and GF Sync version. **Location (zone) and online status are never uploaded**, and GF Sync strips them even if present. GF Sync never modifies game files. Locally it keeps a DPAPI-encrypted device token, upload state and a log in `%APPDATA%\GFSync`; none of these are uploaded. The log masks WoW account folder names (first 2 characters + `******~` + a 4-digit hash) and shortens character GUIDs to their last 4 digits. To stop syncing: turn sync off in the AddOn's settings (or type `/gf sync off`) in game, choose "暫停同步" (Pause) in the tray menu, revoke the device at <https://greenandfangadventure.com/pages/sync-devices>, or uninstall (which deletes `%APPDATA%\GFSync`). To delete data already uploaded, contact the guild officers on Discord.
+GF Sync uploads character and guild-roster data that the in-game AddOn "GreenFang Toolkit" saved to `sync.outbox` to the guild website greenandfangadventure.com (hosted on Cloudflare). Uploaded fields: game world/realm/locale; the uploading character's GUID, name, realm, faction, guild and rank; level, class, race and professions; for roster snapshots, each member's name, GUID, level, class, race, rank and professions; and at pairing time the computer name and GF Sync version. Your own character's location (zone and sub-zone names at the moment the AddOn saved, usually at logout; no coordinates) is uploaded with character data. It is on by default and can be turned off in the AddOn's settings. Other members' locations and anyone's online status are never uploaded, and GF Sync strips them even if present; the log never records locations. GF Sync never modifies game files. Locally it keeps a DPAPI-encrypted device token, upload state and a log in `%APPDATA%\GFSync`; none of these are uploaded. The log masks WoW account folder names (first 2 characters + `******~` + a 4-digit hash) and shortens character GUIDs to their last 4 digits. To stop syncing: turn sync off in the AddOn's settings (or type `/gf sync off`) in game, choose "暫停同步" (Pause) in the tray menu, revoke the device at <https://greenandfangadventure.com/pages/sync-devices>, or uninstall (which deletes `%APPDATA%\GFSync`). To delete data already uploaded, contact the guild officers on Discord.
