@@ -31,9 +31,13 @@ type Config struct {
 	Client      *api.Client
 	Tokens      secret.Store
 	OpenBrowser func(url string) error
-	Detect      func() string // finds _forever_; default gamedir.Detect
-	Now         func() time.Time
-	Logf        func(format string, a ...any)
+	// Detect finds _forever_ (default gamedir.Detect). "" with an
+	// ErrAccessDenied error means a folder exists but cannot be read.
+	Detect func() (string, error)
+	Now    func() time.Time
+	Logf   func(format string, a ...any)
+	// LogErr reports whether the log file could not be opened (nil = fine).
+	LogErr func() error
 
 	Tick        time.Duration // scan interval (default 2s)
 	Settle      time.Duration // quiet period before reading (default 5s)
@@ -55,17 +59,29 @@ type Status struct {
 	Pairing     bool // a pairing attempt is running (maybe still waiting for a code)
 	Ready       bool // state and token have been loaded (Run has started)
 	GameDir     string
+	// NeedGameDir: no game folder was found anywhere; the UI asks the
+	// player to pick one. Never set together with GameDirDenied.
 	NeedGameDir bool
-	Files       int
-	Paired      bool
-	PairingCode string
-	PairingURL  string
-	Paused      bool
-	LastSyncAt  time.Time
-	LastError   string
-	Pending     int
-	Notices     []string
-	RetryAt     time.Time
+	// GameDirDenied: the game folder (or its saved files) exists but GF
+	// Sync is not allowed to read it, usually because of security
+	// software. Picking the folder again would not help.
+	GameDirDenied bool
+	// Storage lists GF Sync's own files that cannot be opened:
+	// StorageLog, StorageState, StorageToken.
+	Storage []string
+	// TokenUnreadable: token.dat exists but cannot be read, so whether
+	// this computer is paired is unknown. The token is kept.
+	TokenUnreadable bool
+	Files           int
+	Paired          bool
+	PairingCode     string
+	PairingURL      string
+	Paused          bool
+	LastSyncAt      time.Time
+	LastError       string
+	Pending         int
+	Notices         []string
+	RetryAt         time.Time
 }
 
 type pairInfo struct {
@@ -100,7 +116,21 @@ type Engine struct {
 	initialized bool
 	pairEnded   bool
 	pairExpired bool
+
+	gameDirDenied   bool
+	stateUnreadable bool  // state.json exists but cannot be read: never overwrite it
+	stateSaveErr    error // last state.json save failed
+	tokenUnreadable bool  // token.dat exists but cannot be read: never delete it
+	tokenSaveFailed bool  // saving a new token failed
+	lastStoreRetry  time.Time
 }
+
+// Names for Status.Storage.
+const (
+	StorageLog   = "log"
+	StorageState = "state"
+	StorageToken = "token"
+)
 
 // New builds an engine; call Run to start it.
 func New(cfg Config) *Engine {
@@ -109,6 +139,9 @@ func New(cfg Config) *Engine {
 	}
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
+	}
+	if cfg.LogErr == nil {
+		cfg.LogErr = func() error { return nil }
 	}
 	if cfg.Detect == nil {
 		cfg.Detect = gamedir.Detect
@@ -158,21 +191,96 @@ func (e *Engine) OnChange(f func(Status)) {
 
 func (e *Engine) init() {
 	st, err := state.Load(e.statePath)
-	if err != nil {
+	switch {
+	case err == nil:
+	case errors.Is(err, state.ErrCorrupt):
 		e.cfg.Logf("state: %v", err)
+	default:
+		// Exists but cannot be read (access denied…). Keep the file as it
+		// is: saving now would replace the player's folder and upload
+		// history with an empty state.
+		e.cfg.Logf("state: cannot read %s, leaving it untouched: %v", state.FileName, err)
+		e.stateUnreadable = true
 	}
 	e.st = st
-	tok, err := e.cfg.Tokens.Load()
-	if err != nil {
-		e.cfg.Logf("token: cannot decrypt, pairing again: %v", err)
-		_ = e.cfg.Tokens.Clear()
-		tok = ""
-	}
-	e.token = tok
-	if d := gamedir.Normalize(st.GameDir); d != "" {
-		e.gameDir = d
+	e.loadTokenLocked()
+	if st.GameDir != "" {
+		d, err := gamedir.Check(st.GameDir)
+		switch {
+		case d != "":
+			e.gameDir = d
+		case gamedir.IsAccessDenied(err):
+			// The saved folder is still there; we are just not allowed in.
+			e.gameDir = st.GameDir
+			e.gameDirDenied = true
+			e.cfg.Logf("game folder: access denied: %v", err)
+		}
 	}
 	e.initialized = true
+}
+
+// loadTokenLocked reads token.dat. A token that cannot be decrypted is
+// deleted (pair again); a file that cannot be read is kept.
+func (e *Engine) loadTokenLocked() {
+	tok, err := e.cfg.Tokens.Load()
+	switch {
+	case err == nil:
+		e.token, e.tokenUnreadable = tok, false
+	case errors.Is(err, secret.ErrUnreadable):
+		if !e.tokenUnreadable {
+			e.cfg.Logf("token: cannot read %s, keeping it: %v", secret.FileName, err)
+		}
+		e.token, e.tokenUnreadable = "", true
+	default:
+		e.cfg.Logf("token: cannot decrypt, pairing again: %v", err)
+		_ = e.cfg.Tokens.Clear()
+		e.token, e.tokenUnreadable = "", false
+	}
+}
+
+// retryStorageLocked tries again to read state.json / token.dat that could
+// not be read at start (for example once security software lets GF Sync in).
+func (e *Engine) retryStorageLocked(now time.Time, force bool) {
+	if !e.stateUnreadable && !e.tokenUnreadable {
+		return
+	}
+	if !force && now.Sub(e.lastStoreRetry) < e.cfg.DetectEvery {
+		return
+	}
+	e.lastStoreRetry = now
+	if e.tokenUnreadable {
+		e.loadTokenLocked()
+		if !e.tokenUnreadable {
+			e.cfg.Logf("token: readable again")
+		}
+	}
+	if e.stateUnreadable {
+		st, err := state.Load(e.statePath)
+		if err != nil && !errors.Is(err, state.ErrCorrupt) {
+			return
+		}
+		// Keep what happened while the file was unreadable.
+		for id, r := range e.st.Uploaded {
+			if !st.Done(id) {
+				st.Mark(id, r)
+			}
+		}
+		if st.GameDir == "" {
+			st.GameDir = e.st.GameDir
+		}
+		if st.LastSyncAt < e.st.LastSyncAt {
+			st.LastSyncAt = e.st.LastSyncAt
+		}
+		if e.gameDir == "" {
+			if d := gamedir.Normalize(st.GameDir); d != "" {
+				e.gameDir = d
+			}
+		}
+		e.st = st
+		e.stateUnreadable = false
+		e.cfg.Logf("state: readable again")
+		e.saveLocked()
+	}
 }
 
 // Run blocks until ctx is cancelled.
@@ -180,7 +288,8 @@ func (e *Engine) Run(ctx context.Context) {
 	e.mu.Lock()
 	e.runCtx = ctx
 	e.init()
-	autoPair := e.cfg.AutoPair && e.token == ""
+	// Do not pair over a token we merely cannot read right now.
+	autoPair := e.cfg.AutoPair && e.token == "" && !e.tokenUnreadable
 	e.mu.Unlock()
 	if autoPair {
 		e.StartPairing()
@@ -238,12 +347,17 @@ func (e *Engine) SetPaused(p bool) {
 
 // SetGameDir sets the folder the player picked.
 func (e *Engine) SetGameDir(dir string) error {
-	f := gamedir.Normalize(dir)
+	f, err := gamedir.Check(dir)
 	if f == "" {
+		if gamedir.IsAccessDenied(err) {
+			e.cfg.Logf("game folder: picked folder: %v", err)
+			return errors.New(MsgFolderDenied)
+		}
 		return fmt.Errorf("這個資料夾裡找不到 %s", gamedir.ForeverDir)
 	}
 	e.mu.Lock()
 	e.gameDir = f
+	e.gameDirDenied = false
 	e.st.GameDir = f
 	e.saveLocked()
 	e.mu.Unlock()
@@ -269,17 +383,28 @@ func (e *Engine) Status() Status {
 
 func (e *Engine) statusLocked() Status {
 	s := Status{
-		GameDir:     e.gameDir,
-		Ready:       e.initialized,
-		PairEnded:   e.pairEnded,
-		PairExpired: e.pairExpired,
-		Pairing:     e.pairing != nil,
-		NeedGameDir: e.initialized && e.gameDir == "",
-		Files:       len(e.files),
-		Paired:      e.token != "",
-		Paused:      e.st.Paused,
-		LastError:   e.lastErr,
-		Pending:     e.pendingCountLocked(),
+		GameDir:         e.gameDir,
+		Ready:           e.initialized,
+		PairEnded:       e.pairEnded,
+		PairExpired:     e.pairExpired,
+		Pairing:         e.pairing != nil,
+		NeedGameDir:     e.initialized && e.gameDir == "" && !e.gameDirDenied,
+		GameDirDenied:   e.gameDirDenied,
+		TokenUnreadable: e.tokenUnreadable,
+		Files:           len(e.files),
+		Paired:          e.token != "",
+		Paused:          e.st.Paused,
+		LastError:       e.lastErr,
+		Pending:         e.pendingCountLocked(),
+	}
+	if e.cfg.LogErr() != nil {
+		s.Storage = append(s.Storage, StorageLog)
+	}
+	if e.stateUnreadable || e.stateSaveErr != nil {
+		s.Storage = append(s.Storage, StorageState)
+	}
+	if e.tokenUnreadable || e.tokenSaveFailed {
+		s.Storage = append(s.Storage, StorageToken)
 	}
 	if e.st.LastSyncAt > 0 {
 		s.LastSyncAt = time.Unix(e.st.LastSyncAt, 0)
@@ -316,9 +441,17 @@ func (e *Engine) notify() {
 }
 
 func (e *Engine) saveLocked() {
-	if err := e.st.Save(e.statePath); err != nil {
+	if e.stateUnreadable {
+		return // never overwrite a state file we could not read
+	}
+	err := e.st.Save(e.statePath)
+	if err != nil && e.stateSaveErr == nil {
 		e.cfg.Logf("state: save failed: %v", err)
 	}
+	if err == nil && e.stateSaveErr != nil {
+		e.cfg.Logf("state: saved again")
+	}
+	e.stateSaveErr = err
 }
 
 func (e *Engine) pendingLocked() []svdoc.Entry {
@@ -344,10 +477,11 @@ func (e *Engine) step(ctx context.Context, force bool) {
 	now := e.cfg.Now()
 
 	e.mu.Lock()
+	e.retryStorageLocked(now, force)
 	if e.gameDir == "" && (force || now.Sub(e.lastDetect) >= e.cfg.DetectEvery) {
 		e.lastDetect = now
 		e.mu.Unlock()
-		d := e.cfg.Detect()
+		d, derr := e.cfg.Detect()
 		e.mu.Lock()
 		if d != "" && e.gameDir == "" {
 			e.gameDir = d
@@ -355,15 +489,22 @@ func (e *Engine) step(ctx context.Context, force bool) {
 			e.saveLocked()
 			e.cfg.Logf("game folder detected: %s", d)
 		}
+		if e.gameDir == "" {
+			e.setDeniedLocked(gamedir.IsAccessDenied(derr), derr)
+		}
 	}
 	dir := e.gameDir
 	e.mu.Unlock()
 
 	var files []string
+	var scanErr error
 	if dir != "" {
-		files = gamedir.SavedVariablesFiles(dir)
+		files, scanErr = gamedir.ScanSavedVariables(dir)
 	}
 	e.mu.Lock()
+	if dir != "" && dir == e.gameDir {
+		e.setDeniedLocked(scanErr != nil, scanErr)
+	}
 	e.files = files
 	for f := range e.pending {
 		if !contains(files, f) {
@@ -383,6 +524,18 @@ func (e *Engine) step(ctx context.Context, force bool) {
 		e.readFile(f)
 	}
 	e.flush(ctx)
+}
+
+// setDeniedLocked records whether the game folder is blocked, logging
+// only when that changes.
+func (e *Engine) setDeniedLocked(denied bool, err error) {
+	if denied && !e.gameDirDenied {
+		e.cfg.Logf("game folder: access denied (not \"not found\"): %v", err)
+	}
+	if !denied && e.gameDirDenied {
+		e.cfg.Logf("game folder: readable again")
+	}
+	e.gameDirDenied = denied
 }
 
 func contains(list []string, s string) bool {
@@ -413,7 +566,11 @@ func (e *Engine) readFile(path string) {
 	defer e.mu.Unlock()
 	if err != nil {
 		e.cfg.Logf("read %s: %v", acct, err)
-		e.notices[path] = fmt.Sprintf("帳號 %s 的存檔讀取失敗，下次存檔時會再試一次", acct)
+		if gamedir.IsAccessDenied(err) {
+			e.notices[path] = fmt.Sprintf("帳號 %s 的存檔沒有讀取權限，可能是防毒軟體擋住了 GF Sync", acct)
+		} else {
+			e.notices[path] = fmt.Sprintf("帳號 %s 的存檔讀取失敗，下次存檔時會再試一次", acct)
+		}
 		e.pending[path] = nil
 		return
 	}
@@ -633,6 +790,13 @@ func (e *Engine) endPairingAs(msg string, expired bool) {
 	e.notify()
 }
 
+// MsgFolderDenied is returned by SetGameDir when the picked folder exists
+// but cannot be read.
+const MsgFolderDenied = "GF Sync 沒有權限讀取這個資料夾，可能是防毒軟體擋住了。資料夾本身沒有問題，不需要重新選擇。"
+
+// MsgTokenSaveFailed: pairing was approved but token.dat could not be written.
+const MsgTokenSaveFailed = "無法保存配對資料，可能是防毒軟體擋住了 GF Sync 寫入自己的資料"
+
 // MsgPairExpired is shown in the tray tooltip and menu after the code expired.
 const MsgPairExpired = "配對碼已過期，點這裡重新配對"
 
@@ -752,11 +916,16 @@ func (e *Engine) pair(ctx context.Context) {
 		}
 		if err := e.cfg.Tokens.Save(r.Token); err != nil {
 			e.cfg.Logf("pair: save token: %v", err)
-			e.endPairing("無法保存配對資料")
+			e.mu.Lock()
+			e.tokenSaveFailed = true
+			e.mu.Unlock()
+			e.endPairing(MsgTokenSaveFailed)
 			return
 		}
 		e.mu.Lock()
 		e.token = r.Token
+		e.tokenSaveFailed = false
+		e.tokenUnreadable = false
 		e.lastErr = ""
 		e.mu.Unlock()
 		e.cfg.Logf("pair: device paired (%v)", stats)

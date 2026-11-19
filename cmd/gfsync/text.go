@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -69,17 +70,56 @@ func pairDialogText(code, url string, browserOpened bool) string {
 	return t + "\n\n找不到這個頁面時，按「" + reopenButton + "」。GF Sync 會常駐在右下角工作列（圖示可能收在「^」裡）。"
 }
 
+// The help section for security software blocking GF Sync (README.md in
+// the public gf-sync repo; the heading must stay the same).
+const avHelpTitle = "如果被防毒擋下"
+
+var avHelpURL = "https://github.com/GreenAndFangAdventure/gf-sync#" + url.PathEscape(avHelpTitle)
+
+const (
+	msgGameDirDenied = "找到遊戲資料夾，但 GF Sync 沒有權限讀取，可能是防毒軟體擋住了。點這裡看說明"
+	msgTokenUnknown  = "配對資料無法讀取"
+)
+
+// storageNames are GF Sync's own files as the player knows them.
+var storageNames = map[string]string{
+	engine.StorageLog:   "記錄檔",
+	engine.StorageState: "設定與上傳紀錄",
+	engine.StorageToken: "配對資料",
+}
+
+// storageText is the ⚠ line when GF Sync cannot open its own files, or "".
+func storageText(s engine.Status) string {
+	if len(s.Storage) == 0 {
+		return ""
+	}
+	var names []string
+	for _, k := range s.Storage {
+		names = append(names, storageNames[k])
+	}
+	return "GF Sync 無法開啟自己的" + strings.Join(names, "、") + "，可能是防毒軟體擋住了。點這裡看說明"
+}
+
+// blocked reports whether security software (or permissions) is keeping
+// GF Sync from its own files or the game folder.
+func blocked(s engine.Status) bool {
+	return s.GameDirDenied || len(s.Storage) > 0 || s.TokenUnreadable
+}
+
 type action int
 
 const (
 	actionNone action = iota
 	actionPair
 	actionFolder
+	actionHelp // open the 「如果被防毒擋下」 help
 )
 
 // problemAction is what clicking the ⚠ line in the menu does.
 func problemAction(s engine.Status) action {
 	switch {
+	case blocked(s):
+		return actionHelp
 	case s.NeedGameDir:
 		return actionFolder
 	case !s.Paired && !s.Pairing:
@@ -115,6 +155,8 @@ func pairText(s engine.Status) string {
 		return "配對中，配對碼 " + formatCode(s.PairingCode)
 	case s.PairExpired:
 		return "配對碼已過期"
+	case s.TokenUnreadable:
+		return msgTokenUnknown
 	case s.Paired:
 		return "已配對"
 	default:
@@ -136,6 +178,10 @@ func lastSyncText(s engine.Status, now time.Time) string {
 // problemText is the most important thing the player should know, or "".
 func problemText(s engine.Status) string {
 	switch {
+	case len(s.Storage) > 0:
+		return storageText(s)
+	case s.GameDirDenied:
+		return msgGameDirDenied
 	case s.NeedGameDir:
 		return "找不到魔獸世界：永恆的資料夾，請選擇遊戲資料夾"
 	case s.LastError != "":

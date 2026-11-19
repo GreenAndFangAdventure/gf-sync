@@ -4,6 +4,7 @@ package secret
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -14,6 +15,11 @@ type Store interface {
 	Save(token string) error
 	Clear() error
 }
+
+// ErrUnreadable means token.dat exists but could not be read (for example
+// access denied). Unlike a token that fails to decrypt, it must not be
+// deleted: the device is still paired.
+var ErrUnreadable = errors.New("token file cannot be read")
 
 // FileName is the encrypted token file inside the data directory.
 const FileName = "token.dat"
@@ -34,7 +40,7 @@ func (s *DPAPIStore) Load() (string, error) {
 		return "", nil
 	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrUnreadable, err)
 	}
 	plain, err := unprotect(b)
 	if err != nil {

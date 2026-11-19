@@ -25,27 +25,12 @@ import (
 // version is set at build time: -ldflags "-X main.version=0.1.0".
 var version = "0.0.0-dev"
 
-const maxLogBytes = 1 << 20
-
 func dataDir() string {
 	base, err := os.UserConfigDir() // %APPDATA%
 	if err != nil || base == "" {
 		base = os.Getenv("APPDATA")
 	}
 	return filepath.Join(base, "GFSync")
-}
-
-func openLog(dir string) *log.Logger {
-	os.MkdirAll(dir, 0o700)
-	p := filepath.Join(dir, "gfsync.log")
-	if st, err := os.Stat(p); err == nil && st.Size() > maxLogBytes {
-		os.Rename(p, p+".old")
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return log.New(os.Stderr, "", log.LstdFlags)
-	}
-	return log.New(f, "", log.LstdFlags)
 }
 
 func main() {
@@ -60,7 +45,8 @@ func main() {
 	defer func() { _ = mutex }()
 
 	dir := dataDir()
-	lg := openLog(dir)
+	lf := newLogFile(dir)
+	lg := log.New(lf, "", log.LstdFlags)
 	lg.Printf("GF Sync %s starting", version)
 
 	base := api.DefaultBase
@@ -89,6 +75,7 @@ func main() {
 		Tokens:      secret.NewDPAPI(dir),
 		OpenBrowser: a.openPairingPage,
 		Logf:        lg.Printf,
+		LogErr:      lf.Err,
 		AutoPair:    true, // first start after install opens the pairing page by itself
 	})
 	systray.Run(a.onReady, a.onExit)
@@ -180,6 +167,8 @@ func (a *app) loop() {
 				a.eng.StartPairing()
 			case actionFolder:
 				go a.pickFolder()
+			case actionHelp:
+				_ = winui.OpenURL(avHelpURL)
 			}
 		case <-a.mCopy.ClickedCh:
 			if f := a.copyCode(); f != "" {
@@ -245,6 +234,10 @@ func (a *app) pickFolder() {
 		return
 	}
 	if err := a.eng.SetGameDir(p); err != nil {
+		if err.Error() == engine.MsgFolderDenied {
+			winui.Warn(appName, err.Error()+"\n\n請看說明「"+avHelpTitle+"」（點工作列選單 ⚠ 那一行）。")
+			return
+		}
 		winui.Warn(appName, err.Error()+"\n\n請選擇 World of Warcraft 資料夾，或其中的 _forever_ 資料夾。")
 	}
 }
@@ -279,6 +272,8 @@ func (a *app) render(s engine.Status) {
 	switch {
 	case s.Paused:
 		systray.SetIcon(icon.Paused)
+	case blocked(s):
+		systray.SetIcon(icon.Error)
 	case s.PairingCode != "" || !s.Paired:
 		systray.SetIcon(icon.Pairing)
 	case problemText(s) != "":

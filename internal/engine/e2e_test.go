@@ -61,7 +61,7 @@ func newHarness(t *testing.T) *harness {
 		DataDir:  h.data,
 		Client:   client,
 		Tokens:   h.tokens,
-		Detect:   func() string { return h.forever },
+		Detect:   func() (string, error) { return h.forever, nil },
 		Tick:     40 * time.Millisecond,
 		Settle:   150 * time.Millisecond,
 		AutoPair: true,
@@ -595,7 +595,7 @@ func TestE2EPairingExpiredThenRetry(t *testing.T) {
 
 func TestE2ENoGameFolderThenPicked(t *testing.T) {
 	h := newHarness(t)
-	h.cfg.Detect = func() string { return "" }
+	h.cfg.Detect = func() (string, error) { return "", nil }
 	h.writeSV("A", sv(2, true, "a:1:character.self"))
 	h.start()
 	h.waitFor("need folder", func() bool { return h.eng.Status().NeedGameDir })

@@ -36,12 +36,18 @@ type State struct {
 	Uploaded    map[string]Record `json:"uploaded"`
 }
 
+// ErrCorrupt marks a state file that was unreadable as JSON and has been
+// reset. Any other error from Load means the file exists but could not be
+// read (for example access denied); callers must not overwrite it then.
+var ErrCorrupt = errors.New("state file was corrupted")
+
 // New returns an empty state.
 func New() *State { return &State{Version: 1, Uploaded: map[string]Record{}} }
 
 // Load reads path. A missing file yields an empty state. A corrupted file
 // is renamed to state.json.bad-<time> and an empty state is returned along
-// with a non-nil warning error.
+// with an error wrapping ErrCorrupt. Any other error means the file could
+// not be read at all.
 func Load(path string) (*State, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -54,7 +60,7 @@ func Load(path string) (*State, error) {
 	if err := json.Unmarshal(b, s); err != nil || s.Version < 1 {
 		bad := fmt.Sprintf("%s.bad-%d", path, time.Now().Unix())
 		_ = os.Rename(path, bad)
-		return New(), fmt.Errorf("state file was corrupted and has been reset (kept as %s)", filepath.Base(bad))
+		return New(), fmt.Errorf("%w and has been reset (kept as %s)", ErrCorrupt, filepath.Base(bad))
 	}
 	if s.Uploaded == nil {
 		s.Uploaded = map[string]Record{}

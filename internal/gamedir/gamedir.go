@@ -3,7 +3,6 @@
 package gamedir
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,36 +15,82 @@ const ForeverDir = "_forever_"
 
 // Normalize accepts a folder the player picked: the WoW root, `_forever_`
 // itself, or something inside `_forever_` (WTF, Interface…). It returns the
-// `_forever_` path, or "" when the folder does not look like one.
+// `_forever_` path, or "" when the folder does not look like one (or
+// cannot be read; use Check to tell the two apart).
 func Normalize(dir string) string {
+	f, _ := Check(dir)
+	return f
+}
+
+// Check is Normalize with a reason. When no `_forever_` is found and some
+// candidate path exists but could not be read, err satisfies
+// errors.Is(err, ErrAccessDenied). Otherwise err is nil.
+func Check(dir string) (string, error) {
 	if dir == "" {
-		return ""
+		return "", nil
+	}
+	var denied error
+	note := func(err error) {
+		if denied == nil && IsAccessDenied(err) {
+			denied = err
+		}
 	}
 	dir = filepath.Clean(dir)
+	if _, err := stat(dir); err != nil {
+		note(err)
+	}
 	for i := 0; i < 4 && dir != ""; i++ {
-		if strings.EqualFold(filepath.Base(dir), ForeverDir) && looksLikeForever(dir) {
-			return dir
+		if strings.EqualFold(filepath.Base(dir), ForeverDir) {
+			ok, err := looksLikeForever(dir)
+			if ok {
+				return dir, nil
+			}
+			note(err)
 		}
-		if f := filepath.Join(dir, ForeverDir); looksLikeForever(f) {
-			return f
+		f := filepath.Join(dir, ForeverDir)
+		ok, err := looksLikeForever(f)
+		if ok {
+			return f, nil
 		}
+		note(err)
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
 		}
 		dir = parent
 	}
-	return ""
+	return "", denied
 }
 
-func looksLikeForever(dir string) bool {
-	if st, err := os.Stat(filepath.Join(dir, "WTF")); err == nil && st.IsDir() {
-		return true
+// looksLikeForever reports whether dir has WTF or Wow.exe. err is an
+// access-denied error when one of them (or dir) exists but cannot be read.
+func looksLikeForever(dir string) (bool, error) {
+	var denied error
+	if _, err := stat(dir); err != nil {
+		return false, deniedOnly(err)
 	}
-	if st, err := os.Stat(filepath.Join(dir, "Wow.exe")); err == nil && !st.IsDir() {
-		return true
+	st, err := stat(filepath.Join(dir, "WTF"))
+	if err == nil && st.IsDir() {
+		return true, nil
 	}
-	return false
+	if denied == nil {
+		denied = deniedOnly(err)
+	}
+	st, err = stat(filepath.Join(dir, "Wow.exe"))
+	if err == nil && !st.IsDir() {
+		return true, nil
+	}
+	if denied == nil {
+		denied = deniedOnly(err)
+	}
+	return false, denied
+}
+
+func deniedOnly(err error) error {
+	if IsAccessDenied(err) {
+		return err
+	}
+	return nil
 }
 
 // CommonRoots lists the usual WoW install folders on every fixed drive.
@@ -66,23 +111,68 @@ func CommonRoots(drives []string) []string {
 }
 
 // Detect returns the first `_forever_` found among registry hints and
-// common folders, or "".
-func Detect() string {
-	for _, c := range append(registryHints(), CommonRoots(fixedDrives())...) {
-		if f := Normalize(c); f != "" {
-			return f
+// common folders. When none is found but a candidate exists and could not
+// be read, it returns "" and an ErrAccessDenied error; "" and nil means
+// the game folder really is not in any usual place.
+func Detect() (string, error) {
+	return DetectIn(append(registryHints(), CommonRoots(fixedDrives())...))
+}
+
+// DetectIn is Detect over the given candidates.
+func DetectIn(candidates []string) (string, error) {
+	var denied error
+	for _, c := range candidates {
+		f, err := Check(c)
+		if f != "" {
+			return f, nil
+		}
+		if denied == nil {
+			denied = err
 		}
 	}
-	return ""
+	return "", denied
 }
 
 // SavedVariablesFiles returns every
 // `<forever>/WTF/Account/*/SavedVariables/GreenFangToolkit.lua`, sorted.
 func SavedVariablesFiles(forever string) []string {
-	pattern := filepath.Join(forever, "WTF", "Account", "*", "SavedVariables", svdoc.FileName)
-	m, _ := filepath.Glob(pattern)
-	sort.Strings(m)
+	m, _ := ScanSavedVariables(forever)
 	return m
+}
+
+// ScanSavedVariables is SavedVariablesFiles with a reason: err satisfies
+// errors.Is(err, ErrAccessDenied) when the folder or a file exists but
+// cannot be read. Files that could be found are still returned. A missing
+// WTF\Account folder (the game never ran) is not an error.
+func ScanSavedVariables(forever string) ([]string, error) {
+	accounts := filepath.Join(forever, "WTF", "Account")
+	ents, err := osReadDir(accounts)
+	if err != nil {
+		if IsAccessDenied(err) {
+			return nil, &deniedError{Path: accounts, Err: err}
+		}
+		if _, serr := stat(forever); serr != nil && IsAccessDenied(serr) {
+			return nil, serr
+		}
+		return nil, nil
+	}
+	var out []string
+	var denied error
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(accounts, e.Name(), "SavedVariables", svdoc.FileName)
+		st, err := stat(p)
+		switch {
+		case err == nil && !st.IsDir():
+			out = append(out, p)
+		case err != nil && denied == nil && IsAccessDenied(err):
+			denied = err
+		}
+	}
+	sort.Strings(out)
+	return out, denied
 }
 
 // AccountOf returns the account folder name for a SavedVariables path.

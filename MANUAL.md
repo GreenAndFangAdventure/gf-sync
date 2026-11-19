@@ -65,6 +65,13 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
 6. 防毒：Trend Micro、Windows Defender 有沒有警告或隔離？請記錄偵測名稱。在 `GFSync.exe` 按右鍵 → 內容 → 詳細資料，預期看到公司「綠皮與獠牙冒險事務所」、產品名稱「GF Sync」、檔案描述「GF Sync」、檔案版本與著作權；安裝檔的產品名稱也是「GF Sync」。
 7. 解除安裝：分別試「工作列選單 → 解除安裝 GF Sync…」、「開始」選單的「解除安裝 綠皮同步（GF Sync）」、「設定 → 應用程式」三種方式。預期程式被關閉、`%LOCALAPPDATA%\Programs\GFSync`、`%APPDATA%\GFSync`、「啟動」資料夾的捷徑都移除；魔獸世界資料夾不受影響。
 
+8. 如果遇到 GF Sync 讀不到遊戲資料夾或自己的檔案（例如被防毒軟體限制）：
+   - 工作列選單的 ⚠ 那一行應該寫「找到遊戲資料夾，但 GF Sync 沒有權限讀取…」或「GF Sync 無法開啟自己的記錄檔／設定與上傳紀錄／配對資料…」，**不應該**寫「找不到魔獸世界：永恆的資料夾」，也不應該跳出選擇資料夾的視窗；點這一行會開啟 README 的「如果被防毒擋下」。
+   - 圖示右下角是紅點；配對資料讀不到時，狀態寫「配對資料無法讀取」，不會自動開配對頁。
+   - `%APPDATA%\GFSync\state.json`、`token.dat` 的修改時間不變（GF Sync 不會重設或刪除它們）。
+   - 防毒放行後重新啟動 GF Sync，⚠ 消失，`gfsync.log` 有「readable again」或正常的啟動紀錄。
+   - 這一項只記錄結果；**不要**為了測試而修改防毒設定。
+
 注意：安裝版沒有 `--api` 參數，會連正式網站。要讓安裝版連模擬伺服器，先設定使用者環境變數 `GFSYNC_API_BASE=http://127.0.0.1:8787` 再啟動（測完記得刪掉）。
 
 ## 5. 正式網站
