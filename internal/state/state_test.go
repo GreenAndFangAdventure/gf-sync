@@ -62,3 +62,47 @@ func TestPrune(t *testing.T) {
 		t.Fatal("prune should drop the oldest")
 	}
 }
+
+// Answers belong to one site and device (LOG #058): after switching the
+// API base or pairing as a new device, old answers no longer count.
+func TestScope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	// A file from before scopes existed.
+	if err := os.WriteFile(path, []byte(`{"version":1,"uploaded":{"a":{"at":1,"status":"accepted"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Scope != "" || !s.Done("a") {
+		t.Fatalf("legacy load: scope %q done %v", s.Scope, s.Done("a"))
+	}
+	if !s.SetScope("https://staging.example device:1") || s.Done("a") {
+		t.Fatal("unscoped answers must not count for a known site")
+	}
+	s.Mark("b", Record{At: 2, Status: "accepted"})
+	if s.SetScope("https://staging.example device:1") || !s.Done("b") {
+		t.Fatal("the same scope keeps its answers")
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Scope != "https://staging.example device:1" || !s.Done("b") {
+		t.Fatalf("scope not saved: %q", s.Scope)
+	}
+	if !s.SetScope("https://www.example device:1") || s.Done("b") {
+		t.Fatal("another API base starts empty")
+	}
+	s.Mark("c", Record{At: 3, Status: "accepted"})
+	if !s.SetScope("https://www.example device:2") || s.Done("c") {
+		t.Fatal("another device starts empty")
+	}
+	if New().SetScope("x") {
+		t.Fatal("nothing dropped from an empty state")
+	}
+}

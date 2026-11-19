@@ -28,12 +28,15 @@ type Record struct {
 // State is the on-disk document. Unknown fields from newer versions are
 // dropped on save, which is fine for a local cache.
 type State struct {
-	Version     int               `json:"version"`
-	GameDir     string            `json:"gameDir,omitempty"`
-	Paused      bool              `json:"paused,omitempty"`
-	LastSyncAt  int64             `json:"lastSyncAt,omitempty"`
-	UploadTimes []int64           `json:"uploadTimes,omitempty"` // request times, for the hourly limit
-	Uploaded    map[string]Record `json:"uploaded"`
+	Version     int     `json:"version"`
+	GameDir     string  `json:"gameDir,omitempty"`
+	Paused      bool    `json:"paused,omitempty"`
+	LastSyncAt  int64   `json:"lastSyncAt,omitempty"`
+	UploadTimes []int64 `json:"uploadTimes,omitempty"` // request times, for the hourly limit
+	// Scope names the site and paired device that Uploaded belongs to
+	// (see SetScope). Files from before scopes existed have none.
+	Scope    string            `json:"scope,omitempty"`
+	Uploaded map[string]Record `json:"uploaded"`
 }
 
 // ErrCorrupt marks a state file that was unreadable as JSON and has been
@@ -83,6 +86,21 @@ func (s *State) Save(path string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// SetScope makes Uploaded belong to scope. When the scope changes (another
+// API base, or pairing again as a new device), the old answers no longer
+// count and are forgotten, so every entry is sent again; the site answers
+// "duplicate" for ones it already has. It reports whether records were
+// dropped.
+func (s *State) SetScope(scope string) bool {
+	if s.Scope == scope {
+		return false
+	}
+	dropped := len(s.Uploaded) > 0
+	s.Scope = scope
+	s.Uploaded = map[string]Record{}
+	return dropped
 }
 
 // Done reports whether id was already sent and answered by the server.

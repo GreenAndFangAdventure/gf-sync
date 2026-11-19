@@ -5,6 +5,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -212,6 +214,7 @@ func (e *Engine) init() {
 	}
 	e.st = st
 	e.loadTokenLocked()
+	e.scopeLocked()
 	if st.GameDir != "" {
 		d, err := gamedir.Check(st.GameDir)
 		switch {
@@ -225,6 +228,30 @@ func (e *Engine) init() {
 		}
 	}
 	e.initialized = true
+}
+
+// uploadScope identifies the site and paired device that upload answers
+// belong to: the API base plus a one-way fingerprint of the device token.
+// Pairing again gives a new token, so a new device starts with no answers.
+// The fingerprint is salted so it never equals the hash the site stores.
+func uploadScope(base, token string) string {
+	sum := sha256.Sum256([]byte("gfsync-upload-scope|" + token))
+	return base + " device:" + hex.EncodeToString(sum[:8])
+}
+
+// scopeLocked points the upload records at the current site and device.
+// Without a token nothing changes: the records wait for the next pairing,
+// which decides whether they still count. It reports whether old answers
+// were dropped.
+func (e *Engine) scopeLocked() bool {
+	if e.token == "" || e.cfg.Client == nil || e.cfg.Client.Base == nil {
+		return false
+	}
+	if !e.st.SetScope(uploadScope(e.cfg.Client.Base.String(), e.token)) {
+		return false
+	}
+	e.cfg.Logf("state: uploads were answered by another site or device; sending them again (the site answers duplicate for ones it has)")
+	return true
 }
 
 // loadTokenLocked reads token.dat. A token that cannot be decrypted is
@@ -260,6 +287,7 @@ func (e *Engine) retryStorageLocked(now time.Time, force bool) {
 		e.loadTokenLocked()
 		if !e.tokenUnreadable {
 			e.cfg.Logf("token: readable again")
+			e.scopeLocked()
 		}
 	}
 	if e.stateUnreadable {
@@ -267,7 +295,11 @@ func (e *Engine) retryStorageLocked(now time.Time, force bool) {
 		if err != nil && !errors.Is(err, state.ErrCorrupt) {
 			return
 		}
-		// Keep what happened while the file was unreadable.
+		// Keep what happened while the file was unreadable, but only
+		// answers from the same site and device count.
+		if e.st.Scope != "" {
+			st.SetScope(e.st.Scope)
+		}
 		for id, r := range e.st.Uploaded {
 			if !st.Done(id) {
 				st.Mark(id, r)
@@ -287,6 +319,7 @@ func (e *Engine) retryStorageLocked(now time.Time, force bool) {
 		e.st = st
 		e.stateUnreadable = false
 		e.cfg.Logf("state: readable again")
+		e.scopeLocked()
 		e.saveLocked()
 	}
 }
@@ -939,6 +972,9 @@ func (e *Engine) pair(ctx context.Context) {
 		e.tokenSaveFailed = false
 		e.tokenUnreadable = false
 		e.lastErr = ""
+		if e.scopeLocked() {
+			e.saveLocked()
+		}
 		e.mu.Unlock()
 		e.cfg.Logf("pair: device paired (%v)", stats)
 		e.endPairing("")
