@@ -128,7 +128,7 @@ func TestBadEntries(t *testing.T) {
 		{ id = "x", capturedAt = 1 },
 		{ id = 5, kind = "character.self", capturedAt = 1 },
 		{ id = "` + strings.Repeat("a", 300) + `", kind = "character.self", capturedAt = 1 },
-		{ id = "good", kind = "character.self", capturedAt = 1 },
+		{ id = "good", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" } },
 	} } }`
 	d, err := Parse([]byte(src))
 	if err != nil {
@@ -147,6 +147,36 @@ func TestMaliciousFile(t *testing.T) {
 	} {
 		if _, err := Parse([]byte(src)); !errors.Is(err, ErrParse) {
 			t.Errorf("%s: want ErrParse, got %v", src, err)
+		}
+	}
+}
+
+// Entries from other guilds (or without a guild) never leave the computer,
+// whatever an old or edited AddOn wrote. Made-up guild names.
+func TestOnlyOurGuild(t *testing.T) {
+	src := `GreenFangToolkitDB = { schemaVersion = 2, sync = { enabled = true, outbox = {
+		{ id = "ours", kind = "character.self", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所" } },
+		{ id = "other", kind = "character.self", capturedAt = 1, uploader = { guild = "虛構的別家公會" } },
+		{ id = "near", kind = "roster.snapshot", capturedAt = 1, uploader = { guild = "綠皮與獠牙冒險事務所 " } },
+		{ id = "empty", kind = "character.self", capturedAt = 1, uploader = { guild = "" } },
+		{ id = "noguild", kind = "character.self", capturedAt = 1, uploader = { name = "虛構" } },
+		{ id = "nouploader", kind = "character.self", capturedAt = 1 },
+		{ id = "notstring", kind = "character.self", capturedAt = 1, uploader = { guild = 1 } },
+		{ id = "badkind", kind = "nope", capturedAt = 1, uploader = { guild = "虛構的別家公會" } },
+	} } }`
+	d, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Entries) != 1 || d.Entries[0].ID != "ours" {
+		t.Fatalf("entries %+v", d.Entries)
+	}
+	if d.OtherGuild != 6 || d.Skipped != 1 {
+		t.Fatalf("otherGuild %d skipped %d", d.OtherGuild, d.Skipped)
+	}
+	for _, e := range d.Entries {
+		if strings.Contains(string(e.JSON), "虛構的別家公會") {
+			t.Fatal("other guild in upload")
 		}
 	}
 }

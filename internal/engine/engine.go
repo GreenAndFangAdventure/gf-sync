@@ -587,6 +587,10 @@ func (e *Engine) readFile(path string) {
 	case svdoc.StatusOK:
 		e.pending[path] = doc.Entries
 		e.cfg.Logf("read %s: %d entries (%d skipped)", redact.Account(acct), len(doc.Entries), doc.Skipped)
+		if doc.OtherGuild > 0 {
+			// Count only: never the guild or character names.
+			e.cfg.Logf("read %s: skipped %d entries (not our guild)", redact.Account(acct), doc.OtherGuild)
+		}
 	case svdoc.StatusDisabled:
 		e.pending[path] = nil
 		e.cfg.Logf("read %s: sync disabled in game (/gf sync off)", redact.Account(acct))

@@ -22,6 +22,11 @@ var KnownKinds = map[string]bool{
 	"roster.snapshot": true,
 }
 
+// Guild is the only guild whose entries GF Sync uploads (upload API v1
+// §3.1). Entries whose uploader.guild is anything else, or missing, never
+// leave the computer, even if an old or edited AddOn wrote them.
+const Guild = "綠皮與獠牙冒險事務所"
+
 // MaxIDLen bounds entry ids; real ids are "GUID:time:kind" (< 80 bytes).
 const MaxIDLen = 256
 
@@ -63,6 +68,7 @@ type Doc struct {
 	AddonVersion  string
 	Entries       []Entry
 	Skipped       int // malformed or unknown-kind entries
+	OtherGuild    int // valid entries whose uploader is not in Guild (not uploaded)
 }
 
 // ErrParse wraps parser failures.
@@ -108,9 +114,23 @@ func Parse(src []byte) (*Doc, error) {
 			d.Skipped++
 			continue
 		}
+		if !ourGuild(item.(*luasv.Table)) {
+			d.OtherGuild++
+			continue
+		}
 		d.Entries = append(d.Entries, e)
 	}
 	return d, nil
+}
+
+// ourGuild reports whether the entry's uploader.guild is exactly Guild.
+func ourGuild(t *luasv.Table) bool {
+	up, _ := t.Get("uploader").(*luasv.Table)
+	if up == nil {
+		return false
+	}
+	g, _ := up.Get("guild").(string)
+	return g == Guild
 }
 
 func toEntry(item any) (Entry, bool) {

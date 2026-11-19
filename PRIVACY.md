@@ -20,6 +20,8 @@ GF Sync（綠皮同步）是「綠皮與獠牙冒險事務所」公會的開源�
 
 GF Sync 只讀取 `WTF\Account\*\SavedVariables\GreenFangToolkit.lua`，不會修改任何遊戲檔案。
 
+GF Sync 只上傳「綠皮與獠牙冒險事務所」成員的資料：存檔裡如果有其他公會的角色，或沒有公會的項目（例如舊版插件留下的），GF Sync 會直接略過，不會送出。記錄檔只記略過的筆數，不記公會或角色名稱。
+
 ## 資料存在哪裡
 
 - **公會網站**：上傳的資料存放在公會網站（greenandfangadventure.com，架設於 Cloudflare）的資料庫，只用來顯示與維護公會名冊。資料會和你配對時登入的 Discord 帳號關聯，記錄「這個 Discord 使用者回報了這個角色」，但不會因此給予任何權限。網站和 Cloudflare 一般都會記錄連線的 IP 位址與時間。
