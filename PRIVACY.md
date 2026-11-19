@@ -26,7 +26,7 @@ GF Sync 只讀取 `WTF\Account\*\SavedVariables\GreenFangToolkit.lua`，不會�
 - **你的電腦**（`%APPDATA%\GFSync`）：
   - `token.dat`：裝置 token，用 Windows DPAPI 加密，只有你的 Windows 帳號能解開。網站只保存 token 的 SHA-256 雜湊。
   - `state.json`：已上傳項目的 id、遊戲資料夾位置、是否暫停。
-  - `gfsync.log`：記錄檔（遊戲資料夾路徑、帳號資料夾名稱、上傳結果），不會記錄 token。超過 1MB 會換新檔。
+  - `gfsync.log`：記錄檔（遊戲資料夾路徑、上傳結果），不會記錄 token 或配對碼。魔獸世界的帳號資料夾名稱會遮罩成「前 2 個字元 + `******` + `~` + 4 碼雜湊」（例如 `SW******~3f9a`；4 個字元以下的名稱不留任何字元），角色 GUID 只留最後 4 碼（例如 `Player-…EF01`），所以可以放心把記錄檔貼給別人求助。超過 1MB 會換新檔。
   - 這些檔案只留在你的電腦上，不會被上傳。
 
 ## 如何暫停、關閉或撤銷
@@ -46,4 +46,4 @@ GF Sync 以 MIT 授權開源，所有行為都可以從原始碼檢查：<https:
 
 ## English summary
 
-GF Sync uploads character and guild-roster data that the in-game AddOn "GreenFang Toolkit" saved to `sync.outbox` to the guild website greenandfangadventure.com (hosted on Cloudflare). Uploaded fields: game world/realm/locale; the uploading character's GUID, name, realm, faction, guild and rank; level, class, race and professions; for roster snapshots, each member's name, GUID, level, class, race, rank and professions; and at pairing time the computer name and GF Sync version. **Location (zone) and online status are never uploaded**, and GF Sync strips them even if present. GF Sync never modifies game files. Locally it keeps a DPAPI-encrypted device token, upload state and a log in `%APPDATA%\GFSync`; none of these are uploaded. To stop syncing: turn sync off in the AddOn's settings (or type `/gf sync off`) in game, choose "暫停同步" (Pause) in the tray menu, revoke the device at <https://greenandfangadventure.com/pages/sync-devices>, or uninstall (which deletes `%APPDATA%\GFSync`). To delete data already uploaded, contact the guild officers on Discord.
+GF Sync uploads character and guild-roster data that the in-game AddOn "GreenFang Toolkit" saved to `sync.outbox` to the guild website greenandfangadventure.com (hosted on Cloudflare). Uploaded fields: game world/realm/locale; the uploading character's GUID, name, realm, faction, guild and rank; level, class, race and professions; for roster snapshots, each member's name, GUID, level, class, race, rank and professions; and at pairing time the computer name and GF Sync version. **Location (zone) and online status are never uploaded**, and GF Sync strips them even if present. GF Sync never modifies game files. Locally it keeps a DPAPI-encrypted device token, upload state and a log in `%APPDATA%\GFSync`; none of these are uploaded. The log masks WoW account folder names (first 2 characters + `******~` + a 4-digit hash) and shortens character GUIDs to their last 4 digits. To stop syncing: turn sync off in the AddOn's settings (or type `/gf sync off`) in game, choose "暫停同步" (Pause) in the tray menu, revoke the device at <https://greenandfangadventure.com/pages/sync-devices>, or uninstall (which deletes `%APPDATA%\GFSync`). To delete data already uploaded, contact the guild officers on Discord.

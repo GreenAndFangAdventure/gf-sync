@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"gfsync/internal/redact"
 )
 
 const maxLogBytes = 1 << 20
@@ -51,7 +53,9 @@ func (l *logFile) Write(p []byte) (int, error) {
 			return len(p), nil // reported through Err, not stderr
 		}
 	}
-	if _, err := l.f.Write(p); err != nil {
+	// Last line of defence: mask account folders in paths and GUIDs in
+	// every line, including ones that did not come from the engine.
+	if _, err := l.f.Write([]byte(redact.Text(string(p)))); err != nil {
 		l.err = err
 		_ = l.f.Close()
 		l.f = nil

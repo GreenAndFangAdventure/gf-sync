@@ -19,6 +19,7 @@ import (
 	"gfsync/internal/api"
 	"gfsync/internal/gamedir"
 	"gfsync/internal/luasv"
+	"gfsync/internal/redact"
 	"gfsync/internal/secret"
 	"gfsync/internal/state"
 	"gfsync/internal/svdoc"
@@ -139,6 +140,13 @@ func New(cfg Config) *Engine {
 	}
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
+	}
+	// Every log line is masked: account folder names inside paths and
+	// character GUIDs (see package redact). Bare account names are masked
+	// at the call sites with redact.Account.
+	logf := cfg.Logf
+	cfg.Logf = func(format string, a ...any) {
+		logf("%s", redact.Text(fmt.Sprintf(format, a...)))
 	}
 	if cfg.LogErr == nil {
 		cfg.LogErr = func() error { return nil }
@@ -565,7 +573,7 @@ func (e *Engine) readFile(path string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err != nil {
-		e.cfg.Logf("read %s: %v", acct, err)
+		e.cfg.Logf("read %s: %v", redact.Account(acct), err)
 		if gamedir.IsAccessDenied(err) {
 			e.notices[path] = fmt.Sprintf("帳號 %s 的存檔沒有讀取權限，可能是防毒軟體擋住了 GF Sync", acct)
 		} else {
@@ -578,14 +586,14 @@ func (e *Engine) readFile(path string) {
 	switch doc.Status {
 	case svdoc.StatusOK:
 		e.pending[path] = doc.Entries
-		e.cfg.Logf("read %s: %d entries (%d skipped)", acct, len(doc.Entries), doc.Skipped)
+		e.cfg.Logf("read %s: %d entries (%d skipped)", redact.Account(acct), len(doc.Entries), doc.Skipped)
 	case svdoc.StatusDisabled:
 		e.pending[path] = nil
-		e.cfg.Logf("read %s: sync disabled in game (/gf sync off)", acct)
+		e.cfg.Logf("read %s: sync disabled in game (/gf sync off)", redact.Account(acct))
 	case svdoc.StatusUnsupported:
 		e.pending[path] = nil
 		e.notices[path] = fmt.Sprintf("帳號 %s 的插件資料格式（版本 %v）這版 GF Sync 看不懂，請更新 GF Sync", acct, doc.SchemaVersion)
-		e.cfg.Logf("read %s: unsupported schemaVersion %v", acct, doc.SchemaVersion)
+		e.cfg.Logf("read %s: unsupported schemaVersion %v", redact.Account(acct), doc.SchemaVersion)
 	default:
 		e.pending[path] = nil
 	}

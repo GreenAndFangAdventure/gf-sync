@@ -90,3 +90,20 @@ func TestLogFileProblemIsReported(t *testing.T) {
 		t.Fatalf("log: %q", b)
 	}
 }
+
+func TestLogFileMasksAccountNames(t *testing.T) {
+	dir := t.TempDir()
+	l := newLogFile(dir)
+	const acct = "SWORDFISH77" // made up
+	line := `read D:\World of Warcraft\_forever_\WTF\Account\` + acct + `\SavedVariables\GreenFangToolkit.lua: Access is denied. Player-4711-0ABCDEF1` + "\n"
+	if _, err := l.Write([]byte(line)); err != nil {
+		t.Fatal(err)
+	}
+	l.mu.Lock()
+	l.f.Close()
+	l.mu.Unlock()
+	b, _ := os.ReadFile(filepath.Join(dir, "gfsync.log"))
+	if s := string(b); strings.Contains(s, acct) || strings.Contains(s, "0ABCDEF1") || !strings.Contains(s, `D:\World of Warcraft\_forever_`) {
+		t.Fatalf("log: %q", s)
+	}
+}
