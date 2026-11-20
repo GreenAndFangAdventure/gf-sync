@@ -1,6 +1,6 @@
 # 自動更新設計（GF-001-J）
 
-> 狀態：**設計草稿，還沒有實作。** 這份文件只描述打算怎麼做，GF Sync v0.1.0 目前沒有任何更新機制。標「待確認」的地方要等實機、SignPath 核准或 owner 決定。
+> 狀態：**§5 第 1–4 步已實作**（GF-001-J：清單、426／`addon_too_old` 處理、檢查更新只通知），其他還是設計。owner 的決定記在 D-017：有簽章之後預設自動安裝、之前只通知；GF Sync 可以更新自己裝的工具箱；隱私權政策改變只通知。標「待確認」的地方要等實機或 SignPath。
 >
 > 相關文件：[CODE_SIGNING_POLICY.md](../CODE_SIGNING_POLICY.md)、[RELEASE.md](../RELEASE.md)、[PRIVACY.md](../PRIVACY.md)、[installer/gfsync.iss](../installer/gfsync.iss)、[.github/workflows/build.yml](../.github/workflows/build.yml)。
 
@@ -15,38 +15,15 @@
 
 ## 1. GF Sync 自我更新
 
-### 1.1 去哪裡檢查：建議用網站上的清單，再用 GitHub 交叉確認
+### 1.1 去哪裡檢查：CI 產生的清單，網站原樣提供，GitHub 交叉確認
 
-| 方案 | 優點 | 缺點 |
-| --- | --- | --- |
-| A. GitHub Releases API（`GET https://api.github.com/repos/GreenAndFangAdventure/gf-sync/releases/latest`） | 不用改網站；Release 是 CI 建置的，來源清楚 | 沒有登入時每個 IP 每小時只能呼叫 60 次；沒辦法分批推送或緊急撤回；「最新版」就等於「全部人都要更新」 |
-| B. **網站上的清單**（建議） | 可以分批推送、緊急撤回、指定最低版本；跟插件清單用同一種格式；本來就要連網站 | 網站要新增一個檔案或端點；網站被入侵時清單也可能被改（所以還需要簽章和交叉確認，見下面） |
+依 D-017 定案：清單由 GitHub Actions 產生（`gfsync-manifest.json`，是 Release 的檔案），網站**原樣**提供同一份，GF Sync 用同一個 Release 的 `SHA256SUMS.txt` 核對。格式、網址和核對步驟見 **[UPDATE_MANIFEST.md](UPDATE_MANIFEST.md)**（已實作）。
 
-**建議用 B 當主要來源，A 當交叉確認：**
-
-- 網站提供 `GET https://greenandfangadventure.com/api/sync/client/latest`（也可以是靜態檔案，路徑由網站決定）。格式和插件清單一致：
-
-  ```json
-  {
-    "product": "gfsync",
-    "version": "0.2.0",
-    "url": "https://github.com/GreenAndFangAdventure/gf-sync/releases/download/v0.2.0/GFSync-Setup-0.2.0.exe",
-    "sha256": "<64 位十六進位，小寫>",
-    "minGfSync": "0.1.1",
-    "rolloutPercent": 100,
-    "notes": "這一版修正了……（短短一句，顯示在通知裡）",
-    "privacyChanged": false
-  }
-  ```
-
-  - `minGfSync`：比這個版本還舊的 GF Sync 就**一定要**更新（見 §3）。
-  - `rolloutPercent`：分批推送。GF Sync 用 `sha256("gfsync-rollout|" + deviceId)` 的前 2 個位元組換算成 0–99，小於這個數字才更新。沒有 deviceId（還沒配對）時當成 0，也就是最先拿到更新。
-  - `privacyChanged`：這一版的 PRIVACY.md 有實質修改時是 `true`，見 §1.6。
-- GF Sync 會檢查：
-  1. `url` 一定要是 `https://github.com/GreenAndFangAdventure/gf-sync/releases/download/v<version>/GFSync-Setup-<version>.exe`。repo 名稱寫死在程式裡，不接受其他網址。
-  2. 再到 `https://github.com/GreenAndFangAdventure/gf-sync/releases/download/v<version>/SHA256SUMS.txt` 拿雜湊，必須和清單的 `sha256` **一模一樣**。這樣只入侵網站，或只入侵 GitHub 帳號，都不夠。
-  3. 下載完成後再算一次 SHA-256，並驗 Authenticode 簽章（§1.3）。
-- 下載時跟著 HTTPS 轉址走，但只接受 GitHub 自己的下載主機（實際主機名稱要用第一個 Release 確認，**待確認**）。檔案最多 50 MB。
+- 只入侵網站不夠：網站那份改了一個位元組，雜湊就對不上 `SHA256SUMS.txt`。
+- 只改 GitHub 上的一個檔案也不夠：清單、安裝檔、`SHA256SUMS.txt` 要一起對得上；有簽章之後還要 SignPath 的簽章（每次都要 Approver 人工核准）。
+- 因為網站要原樣提供，草稿裡的 `rolloutPercent`（分批推送）拿掉了。要分批或暫緩，網站可以**晚一點換**成新版的清單；owner 也可以先只發布在 GitHub、不讓網站換。
+- 網站沒有清單（404）時，GF Sync 直接讀 GitHub 的 `releases/latest/download/gfsync-manifest.json`。
+- 下載安裝檔（之後才做）時跟著 HTTPS 轉址走，不接受轉到 http。檔案最多 50 MB。
 
 ### 1.2 多久檢查一次
 
@@ -87,7 +64,7 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
 | 下載、雜湊、簽章失敗 | 不執行，舊版照常跑。 |
 | 安裝檔執行失敗 | Inno 自己會復原到原本的檔案，Restart Manager 再啟動舊版（§1.4）。重新啟動的舊版看到 `updates\pending.json` 的版本比自己新、`setup.log` 裡有失敗，就知道更新失敗了，記一行記錄，這一版 24 小時內不再試。用備案時，舊版要等下次開機才會再啟動。 |
 | 新版啟動後一直當掉 | 安裝前把**目前版本**的安裝檔留在 `updates\previous\`（只留一份，從上次自動更新的下載保留，或者向 GitHub 重抓同版本並同樣驗證）。新版啟動時把「啟動次數」記在 `updates\pending.json`，成功跑完一次讀檔和一次 API 呼叫（或 5 分鐘沒當掉）後才清掉。連續 3 次啟動都沒清掉，就靜默執行 `previous` 的安裝檔（Inno 允許裝舊版），並在通知裡說「新版有問題，已經回到 0.1.1」，這一版 7 天內不再自動安裝。 |
-| 整批版本有問題 | owner 把網站清單的 `version` 改回上一版，或把 `rolloutPercent` 調成 0。已經裝新版的人不會自動降級，除非清單加上 `"rollback": true`（這時用上面的 `previous` 流程）。 |
+| 整批版本有問題 | 網站改回提供上一版的清單（原樣），沒更新的人就不會再拿到這一版。已經裝新版的人不會自動降級；要強制回到舊版，之後要在清單加欄位（例如 `"rollback": true`，schema 2，還沒定）。 |
 
 **資料格式相容：** `state.json`、token 檔案每次改格式時，舊一版必須還讀得懂（或者那一版的清單標 `"rollback": false`）。目前 `state.json` 有 `Version: 1`，之後改版要遵守這條。
 
@@ -100,7 +77,7 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
   - 被要求一定要更新（§3）：「這版 GF Sync 太舊，網站暫時不收資料。請更新 GF Sync（資料會先留在電腦上）。」
   - 回到舊版：「新版 GF Sync 有問題，已經回到 0.1.1。」
 - 工作列選單加「關於／版本 0.2.0」和「檢查更新」。可以另外加「自動更新」勾選項，預設勾選；取消就只通知。
-- `privacyChanged = true` 的版本：**不靜默安裝**，只通知並開 PRIVACY 頁，讓玩家看過後按「更新」。理由：安裝檔的隱私權頁（`InfoBeforeFile`）在 `/VERYSILENT` 時不會顯示，而隱私權政策有實質修改時應該讓人看到。是否需要重新同意，由 owner 決定（**待 owner**）。
+- `privacyChanged = true` 的版本：照常安裝，通知裡加一句「這一版的隱私權政策有修改」，點了可以開 PRIVACY 頁。**不需要重新同意**（D-017 第 6 點）。安裝檔的隱私權頁（`InfoBeforeFile`）在 `/VERYSILENT` 時不會顯示，所以這句通知是唯一的提醒。
 
 ### 1.7 Trend Micro 行為監控可能的反應
 
@@ -115,7 +92,7 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
 
 1. 安裝檔和 `GFSync.exe` 都簽章，簽署者一致。
 2. 從 GitHub 的 HTTPS 下載，放在 GF Sync 自己的資料夾，用一般的 `CreateProcess` 執行，不經過 cmd、PowerShell 或腳本，不改登錄檔的 Run 機碼（沿用「啟動」資料夾捷徑）。
-3. **分批推送：** 每一版先在 owner 有裝 Trend 的電腦上手動安裝並跑一次自動更新（`rolloutPercent` 先設 0，只有 owner 的裝置用一個測試旗標更新），再照 RELEASE.md 第 3 步送誤判回報，最後才把 `rolloutPercent` 調高。
+3. **先測再推：** 每一版先在 owner 有裝 Trend 的電腦上手動安裝並跑一次自動更新，再照 RELEASE.md 第 3 步送誤判回報，最後才讓網站換成新版的清單。
 4. 記錄檔寫清楚每一步（下載、雜湊、簽章、執行、結果），方便回報時附上。
 
 ## 2. 插件更新（選用，只給從公會網站安裝的玩家）
@@ -123,7 +100,7 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
 ### 2.1 範圍
 
 - 只更新 `Interface\AddOns\GreenFangToolkit`（`_forever_` 底下，由現有的 gamedir 偵測）。
-- 只在玩家**在 GF Sync 裡啟用「讓 GF Sync 更新綠皮冒險工具箱」**時才做，預設關閉，或者只在 GF Sync 自己裝過插件之後才預設開啟（**待 owner**）。
+- D-017 第 4 點：GF Sync **只更新自己安裝的那一份**。用 CurseForge 或手動安裝的只提醒有新版。
 - 從 CurseForge 或其他管理工具安裝的，一律不碰（§2.4）。
 
 ### 2.2 清單
@@ -142,7 +119,7 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
 3. **確認遊戲沒有在執行：** 列出執行中的程式，找映像路徑在 `_forever_` 資料夾底下的 `Wow.exe`（用 `QueryFullProcessImageName`）。找到就等，每 5 分鐘再看一次，不提示玩家關遊戲。
 4. 備份：把現在的 `GreenFangToolkit` 改名成 `%LOCALAPPDATA%\GFSync\updates\addon\backup\GreenFangToolkit-<舊版本>`（同一個磁碟用搬移，不同磁碟就複製）。只留最近 2 份。
 5. 把新版搬進 `Interface\AddOns\GreenFangToolkit`。搬移中途失敗就把備份搬回來。
-6. 寫入標記檔 `Interface\AddOns\GreenFangToolkit\.gfsync-installed.json`（版本、來源網址、每個檔案的 SHA-256），並在通知裡說「綠皮冒險工具箱已經更新到 0.10.1，下次進遊戲生效」。
+6. 寫入安裝記錄 `%LOCALAPPDATA%\GFSync\addon-install.json`（版本、來源網址、清單裡每個檔案的 SHA-256）。**插件資料夾裡不放任何 GF Sync 的檔案**（CurseForge 可能把它當成被修改）。通知「綠皮冒險工具箱已經更新到 0.10.1，下次進遊戲生效」。
 7. **不碰 `WTF\` 底下的 SavedVariables。** 插件的資料遷移由插件自己在遊戲裡做。
 8. 玩家可以在選單選「還原上一版工具箱」，用備份換回來（同樣要遊戲沒在執行）。
 
@@ -150,8 +127,8 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
 
 不依賴 CurseForge app 的內部檔案格式（沒有公開文件，隨時可能改）。改成「**只有確定是 GF Sync 自己裝的，才更新**」：
 
-1. **標記檔：** 只有 `GreenFangToolkit\.gfsync-installed.json` 存在，而且資料夾裡每個檔案的 SHA-256 都和標記檔一致時，才當成 GF Sync 管理的。有任何檔案被改過、多出來或少了，就當成別人管理的，不碰，只通知「有新版」。
-2. **發布管道寫在 .toc：** 請插件團隊打包時依管道寫一行，例如 `## X-GF-Channel: site` 或 `## X-GF-Channel: curseforge`。是 `curseforge` 就一定不碰。（CurseForge 的打包工具通常會讓 .toc 帶 `## X-Curse-Project-ID`；那一行如果是插件作者自己寫的，各管道的 .toc 都會有，所以不能單獨拿來判斷，只能當輔助。）
+1. **安裝記錄（D-017 定案）：** 只有 `%LOCALAPPDATA%\GFSync\addon-install.json` 存在，而且資料夾裡每個檔案的 SHA-256 都和記錄（來自 `addon-manifest.json` 的 `files`）一致時，才當成 GF Sync 管理的。有任何檔案被改過、多出來或少了，就**停止管理**這個資料夾，只通知有新版：**CurseForge 優先**。
+2. 不在 .toc 加管道標記（D-017 定案，原草稿的 `## X-GF-Channel` 拿掉）。
 3. **第一次：** 玩家原本是手動或從 CurseForge 安裝的（沒有標記檔），GF Sync 只會在玩家**明確按「讓 GF Sync 接手更新」**後，才用網站的版本覆蓋（同樣先備份）。
 
 ## 3. 最低版本握手
@@ -218,24 +195,24 @@ GFSync-Setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIO
 
 | # | 步驟 | 誰 | 工作量 | 需要 owner |
 | --- | --- | --- | --- | --- |
-| 1 | 把 426 `client_too_old`、`addon_too_old`、`sync.minGfSync` 寫進合約 | pm | 0.5 天 | 核准合約 |
-| 2 | 網站：清單端點、426 握手（先只記錄不擋）、下載頁說明 | 網站 session | 1 天 | 決定清單路徑；上線 |
-| 3 | GF Sync：426 處理（停止上傳、通知、不浪費次數）；`addon_too_old` 照 `unknown_kind` 處理；讀 `sync.minGfSync` | claude-sync | 1 天 | — |
-| 4 | GF Sync：檢查更新、只通知（清單、交叉確認雜湊、工作列選單「檢查更新」「關於」）。**建議放進 v0.1.1** | claude-sync | 1.5 天 | 決定是不是放進 v0.1.1 |
+| 1 | 清單和握手的約定：**GF Sync 這邊已寫在 UPDATE_MANIFEST.md**（GF-001-J）；upload-api 合約要補 426 和 `addon_too_old`，savedvariables 合約要補 `sync.minGfSync`（如果要做） | pm | 0.5 天 | 核准合約 |
+| 2 | 網站：`/api/sync/gfsync-manifest.json`（原樣提供）、426 握手（先只記錄不擋）、`addon_too_old`、下載頁說明。規格見 UPDATE_MANIFEST.md §2 | 網站 session | 1 天 | 上線 |
+| 3 | GF Sync：426 處理、`addon_too_old` 照 `unknown_kind` 處理。**已實作**（GF-001-J）。讀 `sync.minGfSync` 還沒做，等合約 | claude-sync | 1 天 | — |
+| 4 | GF Sync：檢查更新、只通知（清單、交叉確認雜湊、工作列選單「檢查更新」、CI 產生清單）。**已實作**（GF-001-J），建議放進 v0.1.1 | claude-sync | 1.5 天 | 決定是不是放進 v0.1.1 |
 | 5 | SignPath 核准後：打開 build.yml 的簽章步驟，在 CI 驗證簽署者名稱（`Get-AuthenticodeSignature`） | owner + claude-sync | 0.5 天 | SignPath 設定、secret、每次核准 |
 | 6 | GF Sync：Authenticode 驗證（`WinVerifyTrust` + 簽署者名稱）、下載、靜默安裝、`gfsync.iss` 加 `/GFUPDATE` 的 `[Run]` | claude-sync | 2 天 | — |
-| 7 | GF Sync：復原（`previous`、啟動次數、自動回到舊版）、`privacyChanged` | claude-sync | 1.5 天 | 決定隱私權變更要不要重新同意 |
+| 7 | GF Sync：復原（`previous`、啟動次數、自動回到舊版） | claude-sync | 1.5 天 | — |
 | 8 | 實機測試：Trend 電腦上跑完整的自動更新和復原，記錄結果 | owner | 0.5 天 | 實機；誤判回報 |
-| 9 | 插件更新（選用）：清單、zip 檢查、遊戲執行偵測、備份和還原、標記檔、CurseForge 判斷 | claude-sync + 插件 session | 2.5 天 | 決定要不要做、預設開或關 |
+| 9 | 插件更新（D-017 決定要做）：清單、zip 檢查、遊戲執行偵測、備份和還原、`addon-install.json`、CurseForge 優先 | claude-sync + 插件 session | 2.5 天 | — |
 | 10 | 文件：PRIVACY（會連 GitHub 下載，GitHub 會看到 IP）、README、MANUAL、RELEASE（發布時更新清單、分批推送） | claude-sync | 0.5 天 | 核准隱私權政策修改 |
 
 步驟 1–4 不需要簽章，可以先做。5–8 要等 SignPath。9 和插件團隊的打包一起做。
 
 ### 需要 owner 決定或處理的事
 
-1. 更新清單放在網站哪裡、誰在發布時更新它（建議：RELEASE.md 第 4 步發布 Release 之後，手動改清單，先 `rolloutPercent: 0`）。
+1. 網站什麼時候換成新版的清單（UPDATE_MANIFEST.md §2.1；建議在 Trend 實測和誤判回報之後）。
 2. SignPath：核准後的 organization id、project、signing policy，以及 secret `SIGNPATH_API_TOKEN`；每次發布在 SignPath 核准。另外請確認 SignPath Foundation 的條款對「程式會自動下載並安裝自己的新版」有沒有額外要求（**待確認**）。
 3. GitHub：Release 發布後不要再換檔案（如果 GitHub 有「不可變更的 Release」設定，建議打開，**待確認**有沒有這個選項）；`main` 的分支保護。
-4. 自動安裝預設開或只通知；插件更新要不要做、預設開或關。
-5. 隱私權政策有實質修改時，要不要讓玩家重新同意。
+4. ~~自動安裝預設開或只通知；插件更新要不要做~~ → D-017：有簽章後預設自動安裝；GF Sync 只更新自己裝的工具箱。
+5. ~~隱私權政策改變要不要重新同意~~ → D-017：只通知。
 6. 每一版在有 Trend 的電腦上實測自動更新，並送誤判回報後再擴大推送。

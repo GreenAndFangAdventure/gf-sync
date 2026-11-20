@@ -6,11 +6,16 @@
 
 ## 1. 建置
 
+- [ ] **打 tag 之前**改好 repo 根目錄的 `release-manifest.json`（會寫進這一版的 `gfsync-manifest.json`，見 `docs/UPDATE_MANIFEST.md`）：
+  - `notes`：一句話的更新說明（顯示在玩家的通知裡），沒有就留 `""`。
+  - `privacyChanged`：這一版的 `PRIVACY.md` 有實質修改才是 `true`；**上一版是 true 的話記得改回 false**。
+  - `minGFSync`：網站準備拒收比這個舊的 GF Sync 時才填（同時要和網站的 426 設定一致），平常留 `""`。
+
 - [ ] 正式版由 GitHub Actions 建置：在 `main` 上推送 tag `v<版本>`，workflow 會建立**草稿** Release。本機試建可在 repo 根目錄執行 `powershell -ExecutionPolicy Bypass -File build.ps1 -Version <版本>`。內容包含：
   - `go test ./...` 全部通過
   - exe 保留符號（沒有 `-s -w`），帶版本資訊、`asInvoker` manifest 和圖示
   - 安裝檔帶版本資訊
-- [ ] 確認 `dist\`（或 workflow 的 artifact）裡有 `GFSync.exe`、`GFSync-Setup-<版本>.exe`、`SHA256SUMS.txt`。如果 `GFSync.exe` 不見了，代表被防毒軟體隔離了：到防毒軟體的隔離區記下偵測名稱，然後做下面第 3 步。**不要**把 `dist` 加入防毒例外來掩蓋問題。
+- [ ] 確認 `dist\`（或 workflow 的 artifact）裡有 `GFSync.exe`、`GFSync-Setup-<版本>.exe`、`SHA256SUMS.txt`，正式版還有 `gfsync-manifest.json`（`SHA256SUMS.txt` 最後一行是它的雜湊）。如果 `GFSync.exe` 不見了，代表被防毒軟體隔離了：到防毒軟體的隔離區記下偵測名稱，然後做下面第 3 步。**不要**把 `dist` 加入防毒例外來掩蓋問題。
 - [ ] 對兩個檔案按右鍵 → 內容 → 詳細資料，確認公司「綠皮與獠牙冒險事務所」、產品名稱、版本號都正確。
 
 ## 2. 實機測試
@@ -30,7 +35,8 @@
 
 ## 4. 發布
 
-- [ ] 確認草稿 Release 的檔案和 `SHA256SUMS.txt`，再按「Publish release」。
+- [ ] 確認草稿 Release 的檔案和 `SHA256SUMS.txt`，再按「Publish release」。網站還沒有任何清單（回 404）時，GF Sync 會直接從 GitHub 看到新版；網站已經提供舊版清單時，要等網站換了才會通知玩家。
+- [ ] 通知網站換成這一版的 `gfsync-manifest.json`（**原樣**，不要改內容）。要暫緩推送就先不換。
 - [ ] 把安裝檔放上網站的下載頁（或連到 GitHub Release）。
 - [ ] **在下載頁更新 SHA-256**，內容要和 `SHA256SUMS.txt` 一致；舊版本的雜湊要一起換掉。
 - [ ] 下載頁保留「防毒誤判」說明：沒有簽章所以 SmartScreen 會警告，以及如何核對 SHA-256、如何回報誤判。

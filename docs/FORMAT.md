@@ -81,4 +81,6 @@ GreenFangToolkitDB = {
 - `member.share` 的數量跟著公會人數（每位成員最多一筆，公會上限 1,000 人），插件寫多少 GF Sync 就收多少，但同一個檔案最多收 1,200 筆；超過時只留 `capturedAt` 最新的 1,200 筆，記錄檔只寫略過的筆數。
 - 上傳順序：其他 kind 先送，`member.share` 最後，自己的角色資料不會排在上千筆成員資料後面。
 - 每次送最多 50 筆、1MB，每小時最多 50 次（約 2,500 筆）。1,000 位成員、每筆約 4 KB 大約要送 20 次；這個小時送不完的留到下個小時，不會丟掉。
+- 網站回 `rejected`、`reason = "addon_too_old"`（插件太舊）時，和 `unknown_kind` 一樣不記成已回覆，24 小時後再送，並提醒更新工具箱。
+- 網站回 **HTTP 426**（`{"error":"client_too_old","minVersion":"…","download":"…"}`）時，GF Sync 不記任何一筆為已回覆，6 小時內不再送，並提醒更新 GF Sync。詳見 [UPDATE_MANIFEST.md](UPDATE_MANIFEST.md)。
 - token 被撤銷（401／403）時，GF Sync 會刪除本機 token，並請你重新配對。
