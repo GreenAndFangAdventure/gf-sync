@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"unicode/utf8"
 
 	"gfsync/internal/luasv"
@@ -53,6 +54,13 @@ const Guild = "綠皮與獠牙冒險事務所"
 // MaxIDLen bounds entry ids; real ids are "GUID:time:kind" (< 80 bytes).
 const MaxIDLen = 256
 
+// MaxMemberShare is a safety ceiling on member.share entries taken from one
+// file. A WoW guild has at most 1,000 members and the AddOn writes at most
+// one entry per member, so any count the AddOn writes up to this is taken
+// in full (EVAL-1000). Above it the AddOn is misbehaving: the newest
+// MaxMemberShare (by capturedAt) are kept, the rest counted in OverLimit.
+const MaxMemberShare = 1200
+
 // Status of a parsed document.
 type Status int
 
@@ -92,6 +100,7 @@ type Doc struct {
 	Entries       []Entry
 	Skipped       int // malformed or unknown-kind entries
 	OtherGuild    int // valid entries whose uploader is not in Guild (not uploaded)
+	OverLimit     int // member.share entries beyond MaxMemberShare (not uploaded)
 }
 
 // ErrParse wraps parser failures.
@@ -131,6 +140,7 @@ func Parse(src []byte) (*Doc, error) {
 	if outbox == nil {
 		return d, nil
 	}
+	var shareAt []float64
 	for _, item := range outbox.Array() {
 		e, ok := toEntry(item)
 		if !ok {
@@ -142,8 +152,59 @@ func Parse(src []byte) (*Doc, error) {
 			continue
 		}
 		d.Entries = append(d.Entries, e)
+		if e.Kind == KindMemberShare {
+			shareAt = append(shareAt, capturedAt(item.(*luasv.Table)))
+		}
 	}
+	d.capShares(shareAt)
 	return d, nil
+}
+
+func capturedAt(t *luasv.Table) float64 {
+	switch v := t.Get("capturedAt").(type) {
+	case int64:
+		return float64(v)
+	case float64:
+		return v
+	}
+	return 0
+}
+
+// capShares applies MaxMemberShare. at[i] is the capturedAt of the i-th
+// member.share entry in d.Entries. Order of the kept entries is unchanged.
+func (d *Doc) capShares(at []float64) {
+	if len(at) <= MaxMemberShare {
+		return
+	}
+	idx := make([]int, len(at))
+	for i := range idx {
+		idx[i] = i
+	}
+	// Newest first; ties keep the later entry in the outbox (written last).
+	sort.SliceStable(idx, func(a, b int) bool {
+		if at[idx[a]] != at[idx[b]] {
+			return at[idx[a]] > at[idx[b]]
+		}
+		return idx[a] > idx[b]
+	})
+	keep := make(map[int]bool, MaxMemberShare)
+	for _, i := range idx[:MaxMemberShare] {
+		keep[i] = true
+	}
+	out := d.Entries[:0]
+	n := 0
+	for _, e := range d.Entries {
+		if e.Kind == KindMemberShare {
+			k := keep[n]
+			n++
+			if !k {
+				d.OverLimit++
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	d.Entries = out
 }
 
 // ourGuild reports whether the entry's uploader.guild is exactly Guild.

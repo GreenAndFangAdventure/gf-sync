@@ -2,6 +2,7 @@ package svdoc
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -136,6 +137,39 @@ func TestRecipesAndRecipeNames(t *testing.T) {
 	for _, e := range d.Entries {
 		if strings.Contains(string(e.JSON), "不該上傳") {
 			t.Errorf("%s leaked: %s", e.ID, e.JSON)
+		}
+	}
+}
+
+// EVAL-1000: every member.share the AddOn writes is taken up to
+// MaxMemberShare; above it only the newest are kept and the rest counted.
+func TestMemberShareCeiling(t *testing.T) {
+	build := func(n int) string {
+		var b strings.Builder
+		b.WriteString(`{ id = "self", kind = "character.self", capturedAt = 1, ` + ourUploader + `, payload = { level = 1 } },`)
+		for i := 0; i < n; i++ {
+			// capturedAt runs backwards, so the oldest are at the end.
+			fmt.Fprintf(&b, `{ id = "s%d", kind = "member.share", capturedAt = %d, `+ourUploader+`, payload = { subject = { name = "虛構%d" } } },`, i, 100000-i, i)
+		}
+		return b.String()
+	}
+	for _, n := range []int{150, 1000, MaxMemberShare} {
+		d := parseOne(t, build(n))
+		if len(d.Entries) != n+1 || d.OverLimit != 0 {
+			t.Errorf("%d shares: entries %d overLimit %d", n, len(d.Entries), d.OverLimit)
+		}
+	}
+	d := parseOne(t, build(MaxMemberShare+5))
+	if len(d.Entries) != MaxMemberShare+1 || d.OverLimit != 5 {
+		t.Fatalf("entries %d overLimit %d", len(d.Entries), d.OverLimit)
+	}
+	if d.Entries[0].ID != "self" {
+		t.Errorf("other kinds are never capped or reordered: first is %s", d.Entries[0].ID)
+	}
+	for _, e := range d.Entries {
+		var i int
+		if _, err := fmt.Sscanf(e.ID, "s%d", &i); err == nil && i >= MaxMemberShare {
+			t.Errorf("kept an older share %s", e.ID)
 		}
 	}
 }

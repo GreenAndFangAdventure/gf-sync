@@ -504,9 +504,14 @@ func (e *Engine) saveLocked() {
 	e.stateSaveErr = err
 }
 
+// pendingLocked lists what is still to upload, member.share last: with a
+// large guild there can be about 1,000 of them per file (EVAL-1000), and
+// the player's own character, the roster and the rest should not wait
+// behind them. Nothing is dropped: whatever does not fit in this hour's
+// requests stays pending and goes in a later run.
 func (e *Engine) pendingLocked() []svdoc.Entry {
 	seen := map[string]bool{}
-	var out []svdoc.Entry
+	var out, shares []svdoc.Entry
 	now := e.cfg.Now().Unix()
 	for _, f := range e.files {
 		for _, en := range e.pending[f] {
@@ -514,10 +519,14 @@ func (e *Engine) pendingLocked() []svdoc.Entry {
 				continue
 			}
 			seen[en.ID] = true
-			out = append(out, en)
+			if en.Kind == svdoc.KindMemberShare {
+				shares = append(shares, en)
+			} else {
+				out = append(out, en)
+			}
 		}
 	}
-	return out
+	return append(out, shares...)
 }
 
 func (e *Engine) pendingCountLocked() int { return len(e.pendingLocked()) }
@@ -633,6 +642,9 @@ func (e *Engine) readFile(path string) {
 		if doc.OtherGuild > 0 {
 			// Count only: never the guild or character names.
 			e.cfg.Logf("read %s: skipped %d entries (not our guild)", redact.Account(acct), doc.OtherGuild)
+		}
+		if doc.OverLimit > 0 {
+			e.cfg.Logf("read %s: skipped %d older member.share entries (more than %d in one file)", redact.Account(acct), doc.OverLimit, svdoc.MaxMemberShare)
 		}
 	case svdoc.StatusDisabled:
 		e.pending[path] = nil
