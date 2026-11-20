@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"gfsync/internal/engine"
+	"gfsync/internal/update"
 )
 
 func TestTexts(t *testing.T) {
@@ -112,5 +114,44 @@ func TestFindUninstaller(t *testing.T) {
 	}
 	if got := findUninstaller(dir); filepath.Base(got) != "unins001.exe" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestUpdateTexts(t *testing.T) {
+	u := &engine.Update{Version: "0.2.0", Notes: "修正同步"}
+	if got := updateMenuText(u); !strings.Contains(got, "0.2.0") || !strings.Contains(got, "下載") {
+		t.Errorf("%q", got)
+	}
+	title, text := updateNotice(u)
+	if !strings.Contains(title, "0.2.0") || !strings.Contains(text, "修正同步") || strings.Contains(text, "隱私") {
+		t.Errorf("%q %q", title, text)
+	}
+	u.Required, u.PrivacyChanged = true, true
+	if _, text := updateNotice(u); !strings.Contains(text, "很快就不能上傳") || !strings.Contains(text, "隱私權政策") {
+		t.Errorf("%q", text)
+	}
+	for _, c := range []struct {
+		u    *engine.Update
+		err  error
+		want string
+	}{
+		{nil, nil, "最新版本"},
+		{nil, update.ErrNotFound, "最新版本"},
+		{nil, engine.ErrUpdatesOff, "測試版"},
+		{nil, errors.New("x"), "無法檢查"},
+		{u, nil, "很快就不能上傳"},
+	} {
+		if _, text := checkResultText(c.u, c.err); !strings.Contains(text, c.want) {
+			t.Errorf("%v %v: %q", c.u, c.err, text)
+		}
+	}
+	s := engine.Status{ClientTooOld: true, MinVersion: "0.2.0", LastError: engine.MsgClientTooOld}
+	if problemAction(s) != actionDownload || !strings.Contains(tooOldText(s), "0.2.0") {
+		t.Errorf("426: action %v text %q", problemAction(s), tooOldText(s))
+	}
+	// Pairing refused with 426 also offers the download, not pairing again.
+	s.Paired = false
+	if problemAction(s) != actionDownload {
+		t.Error("426 before pairing must offer the download")
 	}
 }

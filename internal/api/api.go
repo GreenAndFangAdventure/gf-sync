@@ -61,6 +61,37 @@ type HTTPError struct {
 	Status     int
 	RetryAfter time.Duration
 	Message    string
+	// Code is the body's "error"; MinVersion and Download come with
+	// 426 client_too_old (docs/AUTO_UPDATE.md §3).
+	Code       string
+	MinVersion string
+	Download   string
+}
+
+// StatusClientTooOld is what the site answers a GF Sync it no longer
+// accepts. v0.1.0 treats it like a server error (backs off, keeps the
+// data), which is why it is not 400 or 403.
+const StatusClientTooOld = http.StatusUpgradeRequired // 426
+
+// ClientTooOld reports whether err is the site refusing this version.
+func ClientTooOld(err error) (*HTTPError, bool) {
+	var he *HTTPError
+	if errors.As(err, &he) && he.Status == StatusClientTooOld {
+		return he, true
+	}
+	return nil, false
+}
+
+// SafeDownloadURL is the page to open for a 426: the site's "download" if
+// it is on the API host, otherwise the GF Sync release list.
+func (c *Client) SafeDownloadURL(he *HTTPError) string {
+	if he != nil {
+		if u, err := url.Parse(he.Download); err == nil && he.Download != "" &&
+			u.Scheme == c.Base.Scheme && strings.EqualFold(u.Host, c.Base.Host) {
+			return u.String()
+		}
+	}
+	return "https://github.com/GreenAndFangAdventure/gf-sync/releases/latest"
 }
 
 func (e *HTTPError) Error() string {
@@ -119,11 +150,14 @@ func (c *Client) do(ctx context.Context, method, path, token string, body any, o
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		he := &HTTPError{Status: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 		var eb struct {
-			Error   string `json:"error"`
-			Message string `json:"message"`
+			Error      string `json:"error"`
+			Message    string `json:"message"`
+			MinVersion string `json:"minVersion"`
+			Download   string `json:"download"`
 		}
 		if json.Unmarshal(data, &eb) == nil {
 			he.Message = firstNonEmpty(eb.Message, eb.Error)
+			he.Code, he.MinVersion, he.Download = eb.Error, eb.MinVersion, eb.Download
 		}
 		return he
 	}

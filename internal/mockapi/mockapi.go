@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gfsync/internal/update"
 )
 
 // Guild is the only accepted guild (upload API v1 §3.1).
@@ -51,6 +53,8 @@ type Server struct {
 	BaseURL   string // used to build verifyUrl; set by the caller
 
 	unknownKinds map[string]bool // kinds answered with "unknown_kind" (an old site)
+	addonTooOld  map[string]bool // kinds answered with "addon_too_old"
+	minClient    string          // GF Sync below this gets 426 client_too_old
 
 	pairings      map[string]*pairing // by deviceCode
 	devices       map[string]*device  // by token hash
@@ -121,6 +125,9 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.tooOldLocked(w, body.ClientVersion) {
+		return
+	}
 	if len(s.startFailures) > 0 {
 		f := s.startFailures[0]
 		s.startFailures = s.startFailures[1:]
@@ -247,6 +254,38 @@ func (s *Server) SetUnknownKinds(kinds ...string) {
 	}
 }
 
+// SetMinClient makes the mock refuse GF Sync versions below v with 426
+// client_too_old on start and upload (docs/AUTO_UPDATE.md §3). "" = off.
+func (s *Server) SetMinClient(v string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.minClient = v
+}
+
+// SetAddonTooOld answers entries of these kinds with rejected /
+// "addon_too_old", without remembering the id. No kinds = off.
+func (s *Server) SetAddonTooOld(kinds ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addonTooOld = map[string]bool{}
+	for _, k := range kinds {
+		s.addonTooOld[k] = true
+	}
+}
+
+// tooOldLocked writes the 426 answer if version is below minClient.
+func (s *Server) tooOldLocked(w http.ResponseWriter, version string) bool {
+	if s.minClient == "" || update.Compare(version, s.minClient) >= 0 {
+		return false
+	}
+	writeJSON(w, 426, map[string]string{
+		"error":      "client_too_old",
+		"minVersion": s.minClient,
+		"download":   s.BaseURL + "/pages/sync",
+	})
+	return true
+}
+
 // knownKinds are the kinds this mock (upload-api v1.1) accepts.
 var knownKinds = map[string]bool{
 	"character.self": true, "roster.snapshot": true, "member.report": true,
@@ -362,6 +401,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "bad_request"})
 		return
 	}
+	if s.tooOldLocked(w, req.Client.Version) {
+		return
+	}
 	if len(req.Items) > 50 {
 		writeJSON(w, 413, map[string]string{"error": "too_many_items"})
 		return
@@ -395,6 +437,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			// Not remembered: once the site learns the kind, the same id
 			// is accepted (upload-api v1.1 §2).
 			results = append(results, result{ID: it.ID, Status: "rejected", Reason: "unknown_kind"})
+			continue
+		}
+		if s.addonTooOld[it.Kind] {
+			results = append(results, result{ID: it.ID, Status: "rejected", Reason: "addon_too_old"})
 			continue
 		}
 		if _, dup := s.seen[it.ID]; dup {

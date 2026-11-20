@@ -25,6 +25,7 @@ import (
 	"gfsync/internal/secret"
 	"gfsync/internal/state"
 	"gfsync/internal/svdoc"
+	"gfsync/internal/update"
 	"gfsync/internal/watch"
 )
 
@@ -50,6 +51,22 @@ type Config struct {
 	DetectEvery time.Duration // re-run Detect while no folder is known (default 30s)
 
 	AutoPair bool // start pairing on Run when there is no token
+
+	// CheckUpdate looks for a newer GF Sync (update.Checker.Check). nil
+	// turns update checks off (development builds, most tests). It only
+	// reads; nothing is downloaded or run (docs/AUTO_UPDATE.md §4.3).
+	CheckUpdate func(ctx context.Context) (*update.Result, error)
+	UpdateFirst time.Duration // first check after Run (default 2m)
+	UpdateEvery time.Duration // then every this long plus up to 1/12 jitter (default 24h)
+}
+
+// Update is a newer GF Sync the site and GitHub agree on.
+type Update struct {
+	Version        string
+	Page           string // release page to open; never an installer
+	Required       bool   // this version is below the manifest's minGFSync
+	PrivacyChanged bool
+	Notes          string // short, one line
 }
 
 // Status is a snapshot for the UI.
@@ -85,6 +102,18 @@ type Status struct {
 	Pending         int
 	Notices         []string
 	RetryAt         time.Time
+
+	// Update is set when a newer GF Sync is available (notify only).
+	Update *Update
+	// ClientTooOld: the site answered 426 and stopped taking uploads from
+	// this version. Nothing is lost; uploads wait. DownloadURL is the page
+	// to open, MinVersion what the site asks for ("" if not given).
+	ClientTooOld bool
+	MinVersion   string
+	DownloadURL  string
+	// AddonTooOld: the site refused some entries because the AddOn that
+	// wrote them is too old (retried later, like unknown_kind).
+	AddonTooOld bool
 }
 
 type pairInfo struct {
@@ -126,6 +155,12 @@ type Engine struct {
 	tokenUnreadable bool  // token.dat exists but cannot be read: never delete it
 	tokenSaveFailed bool  // saving a new token failed
 	lastStoreRetry  time.Time
+
+	nextUpdate  time.Time      // next scheduled update check
+	updChecking bool           // a check is running
+	upd         *update.Result // last successful check
+	tooOld      *api.HTTPError // last 426, until an upload succeeds
+	addonTooOld bool
 }
 
 // Names for Status.Storage.
@@ -176,6 +211,12 @@ func New(cfg Config) *Engine {
 	}
 	if cfg.DetectEvery <= 0 {
 		cfg.DetectEvery = 30 * time.Second
+	}
+	if cfg.UpdateFirst <= 0 {
+		cfg.UpdateFirst = 2 * time.Minute
+	}
+	if cfg.UpdateEvery <= 0 {
+		cfg.UpdateEvery = 24 * time.Hour
 	}
 	w := watch.New()
 	w.Settle, w.Now = cfg.Settle, cfg.Now
@@ -238,6 +279,24 @@ const ReasonUnknownKind = "unknown_kind"
 // UnknownKindRetry is how long to wait before sending an unknown_kind
 // entry again.
 const UnknownKindRetry = 24 * time.Hour
+
+// ReasonAddonTooOld is the site refusing an entry because the AddOn that
+// wrote it is too old. It is retried like unknown_kind: after the player
+// updates the AddOn the site may take it, and nothing is lost meanwhile.
+const ReasonAddonTooOld = "addon_too_old"
+
+// TooOldRetry is how long uploads wait after a 426 before trying again
+// (the site may lower its minimum; a new GF Sync restarts anyway).
+const TooOldRetry = 6 * time.Hour
+
+// Messages for a version the site no longer takes.
+const (
+	MsgClientTooOld = "這版 GF Sync 太舊，網站暫時不收資料。請更新 GF Sync（資料會先留在電腦上）"
+	MsgAddonTooOld  = "綠皮冒險工具箱的版本太舊，網站暫時不收它的部分資料。請更新工具箱（資料會先留著）"
+)
+
+// noticeAddon is the notices key for MsgAddonTooOld (never a file path).
+const noticeAddon = "~addon"
 
 // uploadScope identifies the site and paired device that upload answers
 // belong to: the API base plus a one-way fingerprint of the device token.
@@ -340,6 +399,7 @@ func (e *Engine) Run(ctx context.Context) {
 	e.init()
 	// Do not pair over a token we merely cannot read right now.
 	autoPair := e.cfg.AutoPair && e.token == "" && !e.tokenUnreadable
+	e.nextUpdate = e.cfg.Now().Add(e.cfg.UpdateFirst)
 	e.mu.Unlock()
 	if autoPair {
 		e.StartPairing()
@@ -446,6 +506,23 @@ func (e *Engine) statusLocked() Status {
 		Paused:          e.st.Paused,
 		LastError:       e.lastErr,
 		Pending:         e.pendingCountLocked(),
+		AddonTooOld:     e.addonTooOld,
+	}
+	if e.tooOld != nil {
+		s.ClientTooOld = true
+		s.DownloadURL = e.cfg.Client.SafeDownloadURL(e.tooOld)
+		if okVersion(e.tooOld.MinVersion) {
+			s.MinVersion = e.tooOld.MinVersion
+		}
+	}
+	if u := e.upd; u != nil && u.Newer {
+		s.Update = &Update{
+			Version:        u.Manifest.Version,
+			Page:           update.ReleasePage(u.Manifest.Version),
+			Required:       u.Required,
+			PrivacyChanged: u.Manifest.PrivacyChanged,
+			Notes:          oneLine(u.Manifest.Notes, 80),
+		}
 	}
 	if e.cfg.LogErr() != nil {
 		s.Storage = append(s.Storage, StorageLog)
@@ -583,6 +660,7 @@ func (e *Engine) step(ctx context.Context, force bool) {
 	for _, f := range ready {
 		e.readFile(f)
 	}
+	e.maybeCheckUpdate(ctx)
 	e.flush(ctx)
 }
 
@@ -725,7 +803,8 @@ func (e *Engine) flush(ctx context.Context) {
 		for _, b := range batch {
 			inBatch[b.ID] = true
 		}
-		answered, accepted, unknownKind := 0, 0, 0
+		answered, accepted, unknownKind, addonOld := 0, 0, 0, 0
+		e.tooOld = nil
 		for _, r := range results {
 			if !inBatch[r.ID] {
 				continue
@@ -733,6 +812,13 @@ func (e *Engine) flush(ctx context.Context) {
 			switch r.Status {
 			case "accepted", "duplicate", "rejected":
 			default:
+				continue
+			}
+			if r.Status == "rejected" && r.Reason == ReasonAddonTooOld {
+				// Same handling as unknown_kind: not an answer, retried.
+				e.st.Mark(r.ID, state.Record{At: now.Unix(), Status: r.Status, Reason: r.Reason,
+					RetryAt: now.Add(UnknownKindRetry).Unix()})
+				addonOld++
 				continue
 			}
 			if r.Status == "rejected" && r.Reason == ReasonUnknownKind {
@@ -757,6 +843,15 @@ func (e *Engine) flush(ctx context.Context) {
 		if unknownKind > 0 {
 			e.cfg.Logf("upload: %d entries of a kind the site does not know yet; retry in %s", unknownKind, UnknownKindRetry)
 		}
+		switch {
+		case addonOld > 0:
+			e.cfg.Logf("upload: %d entries from an AddOn the site finds too old; retry in %s", addonOld, UnknownKindRetry)
+			e.addonTooOld = true
+			e.notices[noticeAddon] = MsgAddonTooOld
+		case accepted > 0:
+			e.addonTooOld = false
+			delete(e.notices, noticeAddon)
+		}
 		e.st.LastSyncAt = now.Unix()
 		e.lastErr = ""
 		e.backoff = 0
@@ -780,6 +875,16 @@ func (e *Engine) flush(ctx context.Context) {
 		e.token = ""
 		_ = e.cfg.Tokens.Clear()
 		e.lastErr = "這台電腦的配對已失效，請重新配對"
+	case isTooOld(err):
+		// The site no longer takes this version. Keep everything, stop
+		// sending (no backoff churn, no hourly budget) and look for an
+		// update now.
+		he, _ := api.ClientTooOld(err)
+		e.tooOld = he
+		e.rateUntil = now.Add(TooOldRetry)
+		e.lastErr = MsgClientTooOld
+		e.nextUpdate = now
+		e.cfg.Logf("upload: site refused this GF Sync version (HTTP 426, minimum %q); uploads wait %s", he.MinVersion, TooOldRetry)
 	case errors.As(err, &he) && he.Status == 429:
 		wait := he.RetryAfter
 		if wait <= 0 {
@@ -900,6 +1005,15 @@ func (e *Engine) pair(ctx context.Context) {
 			break
 		}
 		if ctx.Err() != nil {
+			return
+		}
+		if he, ok := api.ClientTooOld(err); ok {
+			e.cfg.Logf("pair: site refused this GF Sync version (HTTP 426, minimum %q)", he.MinVersion)
+			e.mu.Lock()
+			e.tooOld = he
+			e.nextUpdate = e.cfg.Now()
+			e.mu.Unlock()
+			e.endPairing(MsgClientTooOld)
 			return
 		}
 		if !retryableStart(err) {

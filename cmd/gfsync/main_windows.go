@@ -19,6 +19,7 @@ import (
 	"gfsync/internal/engine"
 	"gfsync/internal/icon"
 	"gfsync/internal/secret"
+	"gfsync/internal/update"
 	"gfsync/internal/winui"
 )
 
@@ -69,7 +70,7 @@ func main() {
 	}
 
 	a := &app{lg: lg, dir: dir, site: strings.TrimRight(base, "/") + "/pages/forever"}
-	a.eng = engine.New(engine.Config{
+	cfg := engine.Config{
 		DataDir:     dir,
 		Client:      client,
 		Tokens:      secret.NewDPAPI(dir),
@@ -77,7 +78,17 @@ func main() {
 		Logf:        lg.Printf,
 		LogErr:      lf.Err,
 		AutoPair:    true, // first start after install opens the pairing page by itself
-	})
+	}
+	// Release builds check for a newer version (notify only). Development
+	// and CI builds (0.0.0-*) do not.
+	if !strings.HasPrefix(version, "0.0.0") {
+		if c, err := update.New(base, version); err == nil {
+			cfg.CheckUpdate = c.Check
+		} else {
+			lg.Printf("update: checks off: %v", err)
+		}
+	}
+	a.eng = engine.New(cfg)
 	systray.Run(a.onReady, a.onExit)
 }
 
@@ -94,6 +105,10 @@ type app struct {
 	mSyncNow, mPause, mPair, mFolder, mSite, mLogs *systray.MenuItem
 	mCopy                                          *systray.MenuItem
 	mPrivacy, mUninstall, mQuit                    *systray.MenuItem
+	mUpdate, mCheckUpdate                          *systray.MenuItem
+
+	notifiedUpdate string // version already announced
+	notifiedTooOld bool   // the 426 notice was shown
 
 	once        sync.Once
 	askedFolder bool
@@ -120,6 +135,9 @@ func (a *app) onReady() {
 	a.mProblem = systray.AddMenuItem("", "")
 	a.mProblem.Disable()
 	a.mProblem.Hide()
+	// A newer GF Sync: opens the release page (never runs anything).
+	a.mUpdate = systray.AddMenuItem("", "開啟下載頁")
+	a.mUpdate.Hide()
 	systray.AddSeparator()
 	a.mSyncNow = systray.AddMenuItem("立即同步", "重新讀取存檔並上傳")
 	a.mPause = systray.AddMenuItemCheckbox("暫停同步", "暫停後不會上傳，直到取消暫停", false)
@@ -130,6 +148,7 @@ func (a *app) onReady() {
 	a.mSite = systray.AddMenuItem("開啟公會網站", "")
 	a.mLogs = systray.AddMenuItem("開啟記錄檔資料夾", "")
 	a.mPrivacy = systray.AddMenuItem("隱私權政策", "GF Sync 會上傳哪些資料")
+	a.mCheckUpdate = systray.AddMenuItem(checkUpdateMenu, "看看有沒有新版的 GF Sync（只會通知，不會自動安裝）")
 	systray.AddSeparator()
 	a.mUninstall = systray.AddMenuItem("解除安裝 GF Sync…", "從這台電腦移除 GF Sync")
 	a.mQuit = systray.AddMenuItem("結束 GF Sync", "")
@@ -169,7 +188,27 @@ func (a *app) loop() {
 				go a.pickFolder()
 			case actionHelp:
 				_ = winui.OpenURL(avHelpURL)
+			case actionDownload:
+				_ = winui.OpenURL(a.eng.Status().DownloadURL)
 			}
+		case <-a.mUpdate.ClickedCh:
+			if u := a.eng.Status().Update; u != nil {
+				_ = winui.OpenURL(u.Page)
+			}
+		case <-a.mCheckUpdate.ClickedCh:
+			go func() {
+				u, err := a.eng.CheckUpdateNow(context.Background())
+				if err != nil {
+					a.lg.Printf("update: manual check: %v", err)
+				}
+				title, text := checkResultText(u, err)
+				a.mu.Lock()
+				if u != nil {
+					a.notifiedUpdate = u.Version
+				}
+				a.mu.Unlock()
+				a.notify(title, text)
+			}()
 		case <-a.mCopy.ClickedCh:
 			if f := a.copyCode(); f != "" {
 				go a.notify("已複製配對碼", f)
@@ -262,6 +301,12 @@ func (a *app) render(s engine.Status) {
 	} else {
 		a.mPause.Uncheck()
 	}
+	if s.Update != nil {
+		a.mUpdate.SetTitle(updateMenuText(s.Update))
+		a.mUpdate.Show()
+	} else {
+		a.mUpdate.Hide()
+	}
 	a.mPair.SetTitle(pairMenuText(s))
 	if clipboardCode(s) != "" {
 		a.mCopy.SetTitle(copyMenuText(s))
@@ -292,6 +337,15 @@ func (a *app) render(s engine.Status) {
 			a.pickFolder()
 		}()
 	}
+	if u := s.Update; u != nil && u.Version != a.notifiedUpdate {
+		a.notifiedUpdate = u.Version
+		title, text := updateNotice(u)
+		go a.notify(title, text)
+	}
+	if s.ClientTooOld && !a.notifiedTooOld {
+		go a.notify(tooOldTitle, tooOldText(s))
+	}
+	a.notifiedTooOld = s.ClientTooOld
 	if a.pairDialog != nil && s.PairingCode == "" {
 		// Paired, expired, denied or cancelled: the code is no longer valid.
 		a.pairDialog.Close()
