@@ -78,6 +78,8 @@ func TestEntryID(t *testing.T) {
 		guid + ":1700000000:roster.snapshot",
 		guid + ":1700000000:member.report",
 		guid + ":1700000000:2:member.report",
+		guid + ":1700000000:member.report:Player-4711-0000BEEF",
+		guid + ":1700000000:member.share:Player-4711-0000BEEF",
 	} {
 		if EntryID(id) != id {
 			t.Errorf("%q must be kept (Text shortens the GUID)", id)
@@ -90,5 +92,20 @@ func TestEntryID(t *testing.T) {
 	}
 	if EntryID(odd) != m {
 		t.Fatal("must be stable")
+	}
+}
+
+// savedvariables v2 ext: member ids may end with the subject's GUID or
+// name; a name must never reach the log.
+func TestEntryIDSubjectSuffix(t *testing.T) {
+	for _, c := range []struct{ id, prefix string }{
+		{guid + ":1700000000:member.report:虛構乙-虛構伺服器", "member.report~"},
+		{guid + ":1700000000:member.share:虛構乙", "member.share~"},
+		{"虛構乙:1700000000:member.share:" + guid, "member.share~"},
+	} {
+		m := EntryID(c.id)
+		if strings.Contains(m, "虛構") || !strings.HasPrefix(m, c.prefix) {
+			t.Errorf("EntryID(%q) = %q", c.id, m)
+		}
 	}
 }

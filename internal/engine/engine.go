@@ -230,6 +230,15 @@ func (e *Engine) init() {
 	e.initialized = true
 }
 
+// ReasonUnknownKind is the site's answer for a kind it does not know yet.
+// Such entries are retried after UnknownKindRetry instead of being
+// recorded as answered (upload-api v1.1 §2).
+const ReasonUnknownKind = "unknown_kind"
+
+// UnknownKindRetry is how long to wait before sending an unknown_kind
+// entry again.
+const UnknownKindRetry = 24 * time.Hour
+
 // uploadScope identifies the site and paired device that upload answers
 // belong to: the API base plus a one-way fingerprint of the device token.
 // Pairing again gives a new token, so a new device starts with no answers.
@@ -301,7 +310,7 @@ func (e *Engine) retryStorageLocked(now time.Time, force bool) {
 			st.SetScope(e.st.Scope)
 		}
 		for id, r := range e.st.Uploaded {
-			if !st.Done(id) {
+			if !st.Has(id) {
 				st.Mark(id, r)
 			}
 		}
@@ -498,9 +507,10 @@ func (e *Engine) saveLocked() {
 func (e *Engine) pendingLocked() []svdoc.Entry {
 	seen := map[string]bool{}
 	var out []svdoc.Entry
+	now := e.cfg.Now().Unix()
 	for _, f := range e.files {
 		for _, en := range e.pending[f] {
-			if seen[en.ID] || e.st.Done(en.ID) {
+			if seen[en.ID] || e.st.Done(en.ID, now) {
 				continue
 			}
 			seen[en.ID] = true
@@ -703,7 +713,7 @@ func (e *Engine) flush(ctx context.Context) {
 		for _, b := range batch {
 			inBatch[b.ID] = true
 		}
-		answered, accepted := 0, 0
+		answered, accepted, unknownKind := 0, 0, 0
 		for _, r := range results {
 			if !inBatch[r.ID] {
 				continue
@@ -711,6 +721,15 @@ func (e *Engine) flush(ctx context.Context) {
 			switch r.Status {
 			case "accepted", "duplicate", "rejected":
 			default:
+				continue
+			}
+			if r.Status == "rejected" && r.Reason == ReasonUnknownKind {
+				// The site does not know this kind yet (it is updated
+				// before GF Sync and the AddOn, but just in case): not an
+				// answer. Try again in 24 hours (upload-api v1.1 §2).
+				e.st.Mark(r.ID, state.Record{At: now.Unix(), Status: r.Status, Reason: r.Reason,
+					RetryAt: now.Add(UnknownKindRetry).Unix()})
+				unknownKind++
 				continue
 			}
 			e.st.Mark(r.ID, state.Record{At: now.Unix(), Status: r.Status, Reason: r.Reason})
@@ -723,6 +742,9 @@ func (e *Engine) flush(ctx context.Context) {
 			}
 		}
 		e.cfg.Logf("upload: %d sent, %d answered, %d accepted", len(batch), answered, accepted)
+		if unknownKind > 0 {
+			e.cfg.Logf("upload: %d entries of a kind the site does not know yet; retry in %s", unknownKind, UnknownKindRetry)
+		}
 		e.st.LastSyncAt = now.Unix()
 		e.lastErr = ""
 		e.backoff = 0

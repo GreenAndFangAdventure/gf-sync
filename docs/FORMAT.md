@@ -36,13 +36,20 @@ GreenFangToolkitDB = {
 }
 ```
 
-- `character.self`（角色本人回報）：`level`、`class`、`classToken`、`race`、`raceID`、`professions`（名稱、技能 ID、等級、上限）。
+- `character.self`（角色本人回報）：`level`、`class`、`classToken`、`race`、`raceID`、`professions`（名稱、技能 ID、等級、上限），以及 `recipes`（`["<skillLineID>"] = { recordedAt, hash, ids }`，原樣上傳）。
+- 每一種 kind 都要有 `id`、`kind`、`capturedAt`（數字）、`game`、`uploader`、`payload`。`capturedAtServer`（遊戲伺服器時間）不是數字時，GF Sync 只拿掉這個欄位。
 - `member.report`（其他成員在遊戲內分享給你的**他們自己**的資料；`uploader` 是收到的本機角色，一樣只接受本公會）：`subject = { name, realm, guid }`、`reportedAt`、`level`、`classToken`、`professions`（`name`、`skillLineID`、`rank`、`max`），以及對方同意時的 `location`。`subject` 只保留 `name`、`realm`、`guid` 三個字串（每個最多 64 個字元），沒有 `name` 的項目不上傳。
+- `member.share`（成員分享、可能經過轉傳的資料，每個欄位帶原作者的記錄時間）：GF Sync 依固定清單重建 payload，清單以外的鍵一律丟掉：
+  - `subject`：`name`（必填）、`realm`、`guid`。
+  - `level`、`classToken`、`professions`、`location`：各自只留 `value`、`recordedAt`（數字，必填）、`via`（只接受 `author`、`relay`）。`professions.value[*]` 只留 `skillLineID`、`name`、`rank`、`max`；`location.value` 只留 `zone`、`subZone`。
+  - `recipes["<skillLineID>"]`：`recordedAt`（必填）、`via`、`hash`、`ids`（只留數字）。
+  - `withdrawn`：`all`、`location`、`recipes["<skillLineID>"]`，都是時間（數字）。`withdrawn.location` 是撤回的時間，不是位置。
+- `recipe.names`：`{ locale, names = { ["<配方 ID>"] = "名稱" } }`，原樣上傳。
 - `roster.snapshot`（某位成員看到的整份公會名冊）：`total`，以及每位成員的 `name`、`guid`、`level`、`classToken`、`race`、`raceID`、`guildRank`、`professions`、`professionSource`。
 
-**所在地只有本人的資料。** `character.self` 和 `member.report` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略；插件預設開啟，每位玩家都可以在「設定」關掉）。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。
+**所在地只有成員自己同意分享的資料。** `character.self` 和 `member.report` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略；插件預設開啟，每位玩家都可以在「設定」關掉）。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。`member.share` 的 `location` 是 `{ value = { zone, subZone }, recordedAt, via }`，`value` 用同樣的規則。
 
-**其他地方都不包含所在地和在線狀態。** 就算插件的某個版本寫了 `zone`、`online` 或 `location`，GF Sync 上傳前也會把它們從項目本身、payload 和每位成員的資料中移除（`roster.snapshot` 永遠不帶任何成員的所在地）。記錄檔不會記錄所在地或 `subject` 的名稱；`member.report` 的 id 如果不是「GUID:數字:member.report」的格式，記錄檔只寫 `member.report~` 加 4 碼雜湊。
+**其他地方都不包含所在地和在線狀態。** 就算插件的某個版本寫了 `zone`、`online` 或 `location`，GF Sync 上傳前也會把它們從項目本身、payload 和每位成員的資料中移除（`roster.snapshot` 永遠不帶任何成員的所在地）。記錄檔不會記錄所在地或 `subject` 的名稱；`member.report`、`member.share` 的 id 如果不是「GUID:數字:member.<kind>」（可以再接「:GUID」）的格式，記錄檔只寫 `member.<kind>~` 加 4 碼雜湊。
 
 未知欄位會原樣轉送，由網站決定是否使用。
 
@@ -70,4 +77,6 @@ GreenFangToolkitDB = {
 
 - 單次最多 50 筆、1MB；GF Sync 自己限制每小時最多 50 次。
 - 同一個 `id` 重送時伺服器回 `duplicate`，不會重複寫入。
+- 網站回 `rejected`、`reason = "unknown_kind"`（網站還不認得這種 kind）時，GF Sync 不記成已回覆，24 小時後再送。其他回答都記成已回覆，不再送。
+- outbox 最多 200 筆（`member.share` 最多 150 筆，每筆約 4 KB），GF Sync 每次送最多 50 筆，約 4 次送完。
 - token 被撤銷（401／403）時，GF Sync 會刪除本機 token，並請你重新配對。

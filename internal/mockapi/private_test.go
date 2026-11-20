@@ -47,3 +47,22 @@ func TestMemberReportChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestMemberShareChecks(t *testing.T) {
+	for _, c := range []struct {
+		raw  string
+		want bool
+	}{
+		{`{"payload":{"subject":{"name":"n"},"location":{"value":{"zone":"z","subZone":"s"},"recordedAt":1,"via":"relay"}}}`, false},
+		{`{"payload":{"subject":{"name":"n"},"withdrawn":{"all":1,"location":2}}}`, false},
+		{`{"payload":{"location":{"zone":"z"}}}`, true},
+		{`{"payload":{"location":{"value":{"zone":"z","x":1},"recordedAt":1}}}`, true},
+		{`{"payload":{"location":{"value":{"zone":"z"},"x":1}}}`, true},
+		{`{"payload":{"level":{"value":1,"zone":"z"}}}`, true},
+		{`{"payload":{"online":true}}`, true},
+	} {
+		if got := hasPrivateField([]byte(c.raw), "member.share"); got != c.want {
+			t.Errorf("%s: got %v", c.raw, got)
+		}
+	}
+}

@@ -23,6 +23,10 @@ type Record struct {
 	At     int64  `json:"at"`
 	Status string `json:"status"` // accepted | duplicate | rejected
 	Reason string `json:"reason,omitempty"`
+	// RetryAt (Unix seconds), when set, means the site did not know the
+	// entry's kind yet (reason "unknown_kind"): the entry is not answered
+	// and is sent again from this time on (upload-api v1.1 §2).
+	RetryAt int64 `json:"retryAt,omitempty"`
 }
 
 // State is the on-disk document. Unknown fields from newer versions are
@@ -103,8 +107,16 @@ func (s *State) SetScope(scope string) bool {
 	return dropped
 }
 
-// Done reports whether id was already sent and answered by the server.
-func (s *State) Done(id string) bool { _, ok := s.Uploaded[id]; return ok }
+// Done reports whether id was already sent and answered by the server, as
+// of now (Unix seconds). A record waiting for a retry is done only until
+// its RetryAt.
+func (s *State) Done(id string, now int64) bool {
+	r, ok := s.Uploaded[id]
+	return ok && (r.RetryAt == 0 || now < r.RetryAt)
+}
+
+// Has reports whether there is any record for id.
+func (s *State) Has(id string) bool { _, ok := s.Uploaded[id]; return ok }
 
 // Mark records the server's answer for id.
 func (s *State) Mark(id string, r Record) { s.Uploaded[id] = r }

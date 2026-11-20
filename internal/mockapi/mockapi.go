@@ -50,6 +50,8 @@ type Server struct {
 	ExpiresIn int
 	BaseURL   string // used to build verifyUrl; set by the caller
 
+	unknownKinds map[string]bool // kinds answered with "unknown_kind" (an old site)
+
 	pairings      map[string]*pairing // by deviceCode
 	devices       map[string]*device  // by token hash
 	seen          map[string]string   // id -> first status
@@ -233,6 +235,24 @@ func (s *Server) Deny(userCode string) {
 	}
 }
 
+// SetUnknownKinds makes the mock behave like a site that does not know
+// these kinds yet: it answers rejected / "unknown_kind" and does not
+// remember the id, as upload-api v1.1 §2 expects. No kinds = all known.
+func (s *Server) SetUnknownKinds(kinds ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unknownKinds = map[string]bool{}
+	for _, k := range kinds {
+		s.unknownKinds[k] = true
+	}
+}
+
+// knownKinds are the kinds this mock (upload-api v1.1) accepts.
+var knownKinds = map[string]bool{
+	"character.self": true, "roster.snapshot": true, "member.report": true,
+	"member.share": true, "recipe.names": true,
+}
+
 // RevokeAll revokes every device (as /pages/sync-devices would).
 func (s *Server) RevokeAll() {
 	s.mu.Lock()
@@ -358,7 +378,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			ID         string  `json:"id"`
 			Kind       string  `json:"kind"`
 			CapturedAt float64 `json:"capturedAt"`
-			Game       struct {
+			// v1.1: preferred over capturedAt when it is a number.
+			CapturedAtServer any `json:"capturedAtServer"`
+			Game             struct {
 				World string `json:"world"`
 			} `json:"game"`
 			Uploader struct {
@@ -369,9 +391,19 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			results = append(results, result{Status: "rejected", Reason: "malformed"})
 			continue
 		}
+		if !knownKinds[it.Kind] || s.unknownKinds[it.Kind] {
+			// Not remembered: once the site learns the kind, the same id
+			// is accepted (upload-api v1.1 §2).
+			results = append(results, result{ID: it.ID, Status: "rejected", Reason: "unknown_kind"})
+			continue
+		}
 		if _, dup := s.seen[it.ID]; dup {
 			results = append(results, result{ID: it.ID, Status: "duplicate"})
 			continue
+		}
+		when := it.CapturedAt
+		if t, ok := it.CapturedAtServer.(float64); ok {
+			when = t
 		}
 		reason := ""
 		switch {
@@ -379,11 +411,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			reason = "wrong_world"
 		case it.Uploader.Guild != Guild:
 			reason = "wrong_guild"
-		case it.CapturedAt > float64(now.Add(10*time.Minute).Unix()):
+		case when > float64(now.Add(10*time.Minute).Unix()):
 			reason = "captured_in_future"
 		case hasPrivateField(raw, it.Kind):
 			reason = "private_field"
-		case it.Kind == "member.report" && !subjectOnly(raw):
+		case (it.Kind == "member.report" || it.Kind == "member.share") && !subjectOnly(raw):
 			reason = "bad_subject"
 		}
 		if reason != "" {
@@ -410,6 +442,24 @@ func hasPrivateField(raw []byte, kind string) bool {
 	var item map[string]any
 	if json.Unmarshal(raw, &item) != nil {
 		return true
+	}
+	if kind == "member.share" {
+		if p, ok := item["payload"].(map[string]any); ok {
+			// withdrawn.location is a time, not a place (upload-api v1.1 §3.7).
+			delete(p, "withdrawn")
+			if loc, ok := p["location"]; ok {
+				m, _ := loc.(map[string]any)
+				if m == nil || !ownLocationOnly(m["value"]) {
+					return true
+				}
+				for k := range m {
+					if k != "value" && k != "recordedAt" && k != "via" {
+						return true
+					}
+				}
+				delete(p, "location")
+			}
+		}
 	}
 	if kind == "character.self" || kind == "member.report" {
 		if p, ok := item["payload"].(map[string]any); ok {

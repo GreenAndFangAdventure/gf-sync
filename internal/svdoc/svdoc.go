@@ -24,7 +24,19 @@ var KnownKinds = map[string]bool{
 	// Another member shared their own data in game (decision D-011);
 	// the uploader is the local character that received it.
 	KindMemberReport: true,
+	// Data relayed in game, one entry per member with a time per field
+	// (decision D-014). The payload is rebuilt from a whitelist.
+	KindMemberShare: true,
+	// Recipe ID -> name table, so the site can show recipe names.
+	KindRecipeNames: true,
 }
+
+// KindMemberShare and KindRecipeNames are the D-014 kinds
+// (savedvariables v2 extension).
+const (
+	KindMemberShare = "member.share"
+	KindRecipeNames = "recipe.names"
+)
 
 // KindMemberReport is data a guild member shared with this player in game.
 const KindMemberReport = "member.report"
@@ -163,9 +175,26 @@ func toEntry(item any) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
+	// Optional; a bad value is dropped alone (savedvariables §3.9).
+	switch obj["capturedAtServer"].(type) {
+	case nil, int64, float64:
+	default:
+		delete(obj, "capturedAtServer")
+	}
+	var share map[string]any
+	if kind == KindMemberShare {
+		if share, ok = sharePayload(obj["payload"]); !ok {
+			return Entry{}, false
+		}
+	}
 	stripPrivate(obj, kind)
-	if kind == KindMemberReport && !keepSubject(obj) {
-		return Entry{}, false
+	switch kind {
+	case KindMemberReport:
+		if !keepSubject(obj) {
+			return Entry{}, false
+		}
+	case KindMemberShare:
+		obj["payload"] = share
 	}
 	raw, err := json.Marshal(obj)
 	if err != nil {
@@ -248,13 +277,24 @@ func keepSubject(entry map[string]any) bool {
 	if !ok {
 		return false
 	}
-	subj, ok := payload["subject"].(map[string]any)
-	if !ok {
+	out := subjectOf(payload["subject"])
+	if out == nil {
 		return false
+	}
+	payload["subject"] = out
+	return true
+}
+
+// subjectOf rebuilds a subject from only name (required), realm and guid;
+// nil when there is no valid name.
+func subjectOf(v any) map[string]any {
+	subj, ok := v.(map[string]any)
+	if !ok {
+		return nil
 	}
 	name, ok := boundedText(subj["name"], MaxSubjectLen)
 	if !ok {
-		return false
+		return nil
 	}
 	out := map[string]any{"name": name}
 	for _, k := range []string{"realm", "guid"} {
@@ -262,8 +302,7 @@ func keepSubject(entry map[string]any) bool {
 			out[k] = v
 		}
 	}
-	payload["subject"] = out
-	return true
+	return out
 }
 
 func boundedText(v any, max int) (string, bool) {

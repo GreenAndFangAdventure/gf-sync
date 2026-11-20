@@ -11,10 +11,11 @@
 //     recover a name.
 //   - Character GUIDs (Player-<realm>-<hex>): only the last 4 hex digits,
 //     e.g. "Player-…EF01".
-//   - member.report entry ids (data another member shared in game): kept
-//     only when shaped "GUID:number…:member.report" (the GUID is then
-//     shortened as above); any other shape could hold the member's name,
-//     so it becomes "member.report~" and 4 hex digits of SHA-256(id).
+//   - member.report and member.share entry ids (data other members shared
+//     in game): kept only when shaped "GUID:number…:member.<kind>" with an
+//     optional ":<subject GUID>" (the GUIDs are then shortened as above);
+//     any other shape could hold a member's name, so it becomes
+//     "member.<kind>~" and 4 hex digits of SHA-256(id).
 //   - Everything else, including the game folder
 //     (D:\World of Warcraft\_forever_), is kept.
 package redact
@@ -56,14 +57,23 @@ var (
 
 // EntryID masks an outbox id for the log (see the package rules).
 func EntryID(id string) string {
-	if !strings.HasSuffix(id, ":member.report") || reportIDRE.MatchString(id) {
+	m := memberKindRE.FindStringSubmatch(id)
+	if m == nil || memberIDRE.MatchString(id) {
 		return id
 	}
 	sum := sha256.Sum256([]byte(id))
-	return "member.report~" + hex.EncodeToString(sum[:2])
+	return "member." + m[1] + "~" + hex.EncodeToString(sum[:2])
 }
 
-var reportIDRE = regexp.MustCompile(`^Player-\d+-[0-9A-Fa-f]+(:\d+)+:member\.report$`)
+var (
+	// Any id that mentions a member kind, wherever the kind appears.
+	memberKindRE = regexp.MustCompile(`:member\.(report|share)(:|$)`)
+	// The safe shapes: "uploader GUID:number…:member.<kind>", optionally
+	// followed by ":<subject GUID>" (savedvariables v2 ext). Only GUIDs and
+	// numbers, so nothing but the GUIDs (shortened by Text) can identify
+	// anyone.
+	memberIDRE = regexp.MustCompile(`^Player-\d+-[0-9A-Fa-f]+(:\d+)+:member\.(report|share)(:Player-\d+-[0-9A-Fa-f]+)?$`)
+)
 
 // GUID shortens one character GUID; other strings are returned unchanged.
 func GUID(s string) string { return guidRE.ReplaceAllStringFunc(s, shortGUID) }

@@ -73,17 +73,21 @@ func TestAddonSampleFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Status != StatusOK || len(d.Entries) != 3 || d.Skipped != 0 {
-		t.Fatalf("status %v entries %d skipped %d", d.Status, len(d.Entries), d.Skipped)
+	// The sample grows with the AddOn (0.9: two character.self, a roster
+	// and a member.report), so only require that everything is taken.
+	if d.Status != StatusOK || len(d.Entries) == 0 || d.Skipped != 0 || d.OtherGuild != 0 {
+		t.Fatalf("status %v entries %d skipped %d otherGuild %d", d.Status, len(d.Entries), d.Skipped, d.OtherGuild)
 	}
 	for _, e := range d.Entries {
 		var m map[string]any
 		if err := json.Unmarshal(e.JSON, &m); err != nil {
 			t.Fatal(err)
 		}
-		// The one allowed place: character.self payload.location (D-009).
-		if p, ok := m["payload"].(map[string]any); ok && e.Kind == "character.self" {
+		// The allowed places: payload.location of own data (D-009, D-011,
+		// D-014) and withdrawn (times, not places).
+		if p, ok := m["payload"].(map[string]any); ok && e.Kind != "roster.snapshot" {
 			delete(p, "location")
+			delete(p, "withdrawn")
 		}
 		b, _ := json.Marshal(m)
 		for _, bad := range []string{`"zone"`, `"online"`, `"location"`} {

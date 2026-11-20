@@ -24,7 +24,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s2.Done("a") || s2.Done("b") || !s2.Paused || s2.GameDir != s.GameDir {
+	if !s2.Has("a") || s2.Has("b") || !s2.Paused || s2.GameDir != s.GameDir {
 		t.Fatalf("%+v", s2)
 	}
 	if _, err := os.Stat(p + ".tmp"); !os.IsNotExist(err) {
@@ -58,7 +58,7 @@ func TestPrune(t *testing.T) {
 		s.Mark(fmt.Sprint(i), Record{At: int64(i)})
 	}
 	s.prune()
-	if len(s.Uploaded) != maxRecords || s.Done("0") || !s.Done(fmt.Sprint(maxRecords+9)) {
+	if len(s.Uploaded) != maxRecords || s.Has("0") || !s.Has(fmt.Sprint(maxRecords+9)) {
 		t.Fatal("prune should drop the oldest")
 	}
 }
@@ -75,14 +75,14 @@ func TestScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Scope != "" || !s.Done("a") {
-		t.Fatalf("legacy load: scope %q done %v", s.Scope, s.Done("a"))
+	if s.Scope != "" || !s.Has("a") {
+		t.Fatalf("legacy load: scope %q done %v", s.Scope, s.Has("a"))
 	}
-	if !s.SetScope("https://staging.example device:1") || s.Done("a") {
+	if !s.SetScope("https://staging.example device:1") || s.Has("a") {
 		t.Fatal("unscoped answers must not count for a known site")
 	}
 	s.Mark("b", Record{At: 2, Status: "accepted"})
-	if s.SetScope("https://staging.example device:1") || !s.Done("b") {
+	if s.SetScope("https://staging.example device:1") || !s.Has("b") {
 		t.Fatal("the same scope keeps its answers")
 	}
 	if err := s.Save(path); err != nil {
@@ -92,17 +92,36 @@ func TestScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Scope != "https://staging.example device:1" || !s.Done("b") {
+	if s.Scope != "https://staging.example device:1" || !s.Has("b") {
 		t.Fatalf("scope not saved: %q", s.Scope)
 	}
-	if !s.SetScope("https://www.example device:1") || s.Done("b") {
+	if !s.SetScope("https://www.example device:1") || s.Has("b") {
 		t.Fatal("another API base starts empty")
 	}
 	s.Mark("c", Record{At: 3, Status: "accepted"})
-	if !s.SetScope("https://www.example device:2") || s.Done("c") {
+	if !s.SetScope("https://www.example device:2") || s.Has("c") {
 		t.Fatal("another device starts empty")
 	}
 	if New().SetScope("x") {
 		t.Fatal("nothing dropped from an empty state")
+	}
+}
+
+// upload-api v1.1 §2: "unknown_kind" is not an answer; retry later.
+func TestRetryAt(t *testing.T) {
+	s := New()
+	s.Mark("a", Record{At: 100, Status: "rejected", Reason: "unknown_kind", RetryAt: 100 + 86400})
+	if !s.Done("a", 200) {
+		t.Fatal("waits until RetryAt")
+	}
+	if s.Done("a", 100+86400) {
+		t.Fatal("due again at RetryAt")
+	}
+	s.Mark("b", Record{At: 100, Status: "rejected", Reason: "wrong_guild"})
+	if !s.Done("b", 1<<40) {
+		t.Fatal("other answers are final")
+	}
+	if s.Done("c", 0) || s.Has("c") || !s.Has("a") {
+		t.Fatal("unknown id")
 	}
 }
