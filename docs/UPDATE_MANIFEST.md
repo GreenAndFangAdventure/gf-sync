@@ -110,7 +110,16 @@ Content-Type: application/json; charset=utf-8
 - 新版 GF Sync：**不記成已回覆**，24 小時後重送（和 `unknown_kind` 一樣），並在工作列顯示「綠皮冒險工具箱的版本太舊……請更新工具箱」。之後有一批被接受、而且沒有 `addon_too_old` 時，提示就消失。
 - v0.1.0：會記成已回覆，那一筆不再送。插件太舊的資料丟掉可以接受。
 - 和 `unknown_kind` 一樣，網站**不要記住**這些 id 的狀態，之後同一個 id 要能被接受。
-- **待決定：** 網站要怎麼知道一筆資料是哪一版插件寫的？目前 outbox 的每一筆沒有插件版本（`addonVersion` 在 SavedVariables 的最上層，GF Sync 讀得到但沒有上傳）。可以選：(a) 插件在每一筆加 `addonVersion`（savedvariables 合約要改），或 (b) GF Sync 上傳時幫每一筆加 `addonVersion`（upload-api 合約要改）。在決定之前，網站只能依 kind 或 payload 的形狀判斷。這要 pm 決定。
+- **網站怎麼知道插件版本（pm 決定）：** GF Sync 上傳時在請求的 `client` 裡放 `addonVersion`，值是 SavedVariables 最上層的 `addonVersion`：
+
+  ```json
+  { "client": { "name": "GFSync", "version": "0.2.0", "addonVersion": "0.10.0" }, "items": [ ... ] }
+  ```
+
+  - **同一個請求的每一筆都來自同一個插件版本**（GF Sync 分批時依版本切開，通常就是同一個檔案），所以一個值就夠。
+  - 檔案沒有 `addonVersion`，或者它不是短的版本字串（最多 32 個字元，只有英數字和 `.+-`）時，**不送這個欄位**。網站看到沒有 `addonVersion` 時要怎麼處理由網站決定（很舊的插件，或 v0.1.0 的 GF Sync）。
+  - 舊的插件不用改。v0.1.0 的 GF Sync 不會送這個欄位。
+  - 網站依 `client.addonVersion` 判斷，再對每一筆回 `addon_too_old`。
 
 ## 3. 測試
 

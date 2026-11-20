@@ -307,9 +307,15 @@ type UploadRequest struct {
 	Items  []json.RawMessage `json:"items"`
 }
 
-// NewUploadRequest builds the body for items.
-func (c *Client) NewUploadRequest(items []json.RawMessage) UploadRequest {
-	return UploadRequest{Client: map[string]string{"name": c.Name, "version": c.Version}, Items: items}
+// NewUploadRequest builds the body for items. addonVersion is the
+// SavedVariables addonVersion of the file the items come from (all items
+// of one request share it); "" leaves client.addonVersion out.
+func (c *Client) NewUploadRequest(addonVersion string, items []json.RawMessage) UploadRequest {
+	cl := map[string]string{"name": c.Name, "version": c.Version}
+	if addonVersion != "" {
+		cl["addonVersion"] = addonVersion
+	}
+	return UploadRequest{Client: cl, Items: items}
 }
 
 // BodySize returns the encoded size of a request.
@@ -318,12 +324,12 @@ func BodySize(r UploadRequest) int {
 	return len(b)
 }
 
-// Upload sends one batch.
-func (c *Client) Upload(ctx context.Context, token string, items []json.RawMessage) ([]ItemResult, error) {
+// Upload sends one batch; see NewUploadRequest for addonVersion.
+func (c *Client) Upload(ctx context.Context, token, addonVersion string, items []json.RawMessage) ([]ItemResult, error) {
 	var out struct {
 		Results []ItemResult `json:"results"`
 	}
-	err := c.do(ctx, "POST", "/api/sync/upload", token, c.NewUploadRequest(items), &out)
+	err := c.do(ctx, "POST", "/api/sync/upload", token, c.NewUploadRequest(addonVersion, items), &out)
 	var he *HTTPError
 	if errors.As(err, &he) && (he.Status == 401 || he.Status == 403) {
 		return nil, fmt.Errorf("%w (%v)", ErrUnauthorized, he)

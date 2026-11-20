@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"unicode/utf8"
 
@@ -90,7 +91,14 @@ type Entry struct {
 	ID   string
 	Kind string
 	JSON json.RawMessage // the entry converted to JSON (privacy fields removed)
+	// AddonVersion is the file's top-level addonVersion ("" if missing or
+	// not a plain version). GF Sync sends it as client.addonVersion.
+	AddonVersion string
 }
+
+// reAddonVersion is what may be sent as client.addonVersion: a short
+// version-like string, nothing else the AddOn might have written there.
+var reAddonVersion = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$`)
 
 // Doc is the interpretation of one SavedVariables file.
 type Doc struct {
@@ -117,7 +125,7 @@ func Parse(src []byte) (*Doc, error) {
 		return &Doc{Status: StatusNoTable}, nil
 	}
 	d := &Doc{SchemaVersion: db.Get("schemaVersion")}
-	if s, ok := db.Get("addonVersion").(string); ok {
+	if s, ok := db.Get("addonVersion").(string); ok && reAddonVersion.MatchString(s) {
 		d.AddonVersion = s
 	}
 	switch v := db.Get("schemaVersion").(type) {
@@ -151,6 +159,7 @@ func Parse(src []byte) (*Doc, error) {
 			d.OtherGuild++
 			continue
 		}
+		e.AddonVersion = d.AddonVersion
 		d.Entries = append(d.Entries, e)
 		if e.Kind == KindMemberShare {
 			shareAt = append(shareAt, capturedAt(item.(*luasv.Table)))

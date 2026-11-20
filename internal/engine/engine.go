@@ -764,14 +764,21 @@ func (e *Engine) flush(ctx context.Context) {
 		e.mu.Unlock()
 		return
 	}
+	// One request carries one client.addonVersion, so a batch only takes
+	// entries written by the same AddOn version (in practice: the same
+	// file). The others keep their place and go in the next request.
 	var batch []svdoc.Entry
 	var items []json.RawMessage
+	addonVersion := ""
 	for _, en := range pend {
 		if len(batch) >= e.batchMax {
 			break
 		}
+		if len(batch) > 0 && en.AddonVersion != addonVersion {
+			continue
+		}
 		trial := append(append([]json.RawMessage(nil), items...), en.JSON)
-		if api.BodySize(e.cfg.Client.NewUploadRequest(trial)) > api.MaxBodyBytes {
+		if api.BodySize(e.cfg.Client.NewUploadRequest(en.AddonVersion, trial)) > api.MaxBodyBytes {
 			if len(batch) == 0 {
 				e.st.Mark(en.ID, state.Record{At: now.Unix(), Status: "rejected", Reason: "too_large_local"})
 				e.cfg.Logf("upload: %s is larger than 1MB, skipped", redact.EntryID(en.ID))
@@ -780,6 +787,7 @@ func (e *Engine) flush(ctx context.Context) {
 			break
 		}
 		batch, items = append(batch, en), trial
+		addonVersion = en.AddonVersion
 	}
 	if len(batch) == 0 {
 		e.saveLocked()
@@ -791,7 +799,7 @@ func (e *Engine) flush(ctx context.Context) {
 	token := e.token
 	e.mu.Unlock()
 
-	results, err := e.cfg.Client.Upload(ctx, token, items)
+	results, err := e.cfg.Client.Upload(ctx, token, addonVersion, items)
 
 	e.mu.Lock()
 	defer e.mu.Unlock()

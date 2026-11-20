@@ -173,3 +173,26 @@ func TestMemberShareCeiling(t *testing.T) {
 		}
 	}
 }
+
+// D-017 follow-up: every entry carries its file's addonVersion so GF Sync
+// can send it as client.addonVersion; anything that is not a short
+// version string is dropped.
+func TestAddonVersionOnEntries(t *testing.T) {
+	for _, c := range []struct{ raw, want string }{
+		{`addonVersion = "0.10.0",`, "0.10.0"},
+		{`addonVersion = "0.10.0-beta1",`, "0.10.0-beta1"},
+		{``, ""},
+		{`addonVersion = 10,`, ""},
+		{`addonVersion = "0.10 虛構",`, ""},
+		{`addonVersion = "` + strings.Repeat("9", 40) + `",`, ""},
+	} {
+		d, err := Parse([]byte(`GreenFangToolkitDB = { schemaVersion = 2, ` + c.raw + ` sync = { enabled = true, outbox = {
+			{ id = "self", kind = "character.self", capturedAt = 1, ` + ourUploader + `, payload = { level = 1 } } } } }`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.AddonVersion != c.want || len(d.Entries) != 1 || d.Entries[0].AddonVersion != c.want {
+			t.Errorf("%q: doc %q entries %+v", c.raw, d.AddonVersion, d.Entries)
+		}
+	}
+}

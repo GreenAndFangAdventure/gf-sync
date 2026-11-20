@@ -71,7 +71,7 @@ GreenFangToolkitDB = {
 `POST /api/sync/upload`，Header `Authorization: Bearer <token>`
 
 ```json
-{ "client": { "name": "GFSync", "version": "0.1.1" },
+{ "client": { "name": "GFSync", "version": "0.1.1", "addonVersion": "<這個檔案的 addonVersion，沒有就不送>" },
   "items": [ <outbox entry 轉成 JSON，已移除 zone／online，只留自己的 location> ] }
 ```
 
