@@ -636,7 +636,7 @@ func (e *Engine) readFile(path string) {
 		}
 	case svdoc.StatusDisabled:
 		e.pending[path] = nil
-		e.cfg.Logf("read %s: sync disabled in game (/gf sync off)", redact.Account(acct))
+		e.cfg.Logf("read %s: not uploaded, sync.enabled is not true (an older AddOn had sync turned off)", redact.Account(acct))
 	case svdoc.StatusUnsupported:
 		e.pending[path] = nil
 		e.notices[path] = fmt.Sprintf("帳號 %s 的插件資料格式（版本 %v）這版 GF Sync 看不懂，請更新 GF Sync", acct, doc.SchemaVersion)

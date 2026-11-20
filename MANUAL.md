@@ -34,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
 1. 保持步驟 1 的兩個程式在執行。登入永恆服，`/reload` 或登出。
 2. 預期：遊戲寫完檔大約 5–10 秒後，模擬伺服器的視窗印出 `received <id> (character.self)` 等行；選單「上次同步：今天 HH:MM」。
 3. 再登出一次，資料沒變：預期不會重複上傳同一個 id（伺服器視窗沒有新的 `POST /api/sync/upload`，或只上傳新的 id）。
-4. 在遊戲輸入 `/gf sync off` 後登出：預期不再上傳。`/gf sync on` 再登出：恢復。
+4. （只適用於還有同步開關的舊版工具箱，0.8.x 以前）在遊戲輸入 `/gf sync off` 後登出：預期不再上傳。`/gf sync on` 再登出：恢復。新版工具箱（D-015 起）沒有這個開關，跳過這一步。
 5. 確認 GF Sync **沒有寫入** 遊戲資料夾：`WTF\Account\*\SavedVariables\GreenFangToolkit.lua` 的修改時間只會在遊戲登出時改變；`Interface\AddOns` 沒有任何新檔。
 
 ## 3. 工作列選單

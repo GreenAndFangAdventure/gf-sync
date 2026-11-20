@@ -16,7 +16,7 @@ GreenFangToolkitDB = {
   addonVersion = "0.4.0",
   settings = { ... },            -- 介面設定，GF Sync 不讀
   sync = {
-    enabled = true,              -- 玩家在工具箱「設定」關閉同步（或 /gf sync off）時是 false，GF Sync 就整個檔案都不上傳
+    enabled = true,              -- 不是 true 時，GF Sync 整個檔案都不上傳。D-015 起工具箱沒有這個開關，只有舊版關閉過同步時會是 false
     outbox = { <entry>, ... },   -- 待上傳的資料
   },
 }
@@ -43,11 +43,11 @@ GreenFangToolkitDB = {
   - `subject`：`name`（必填）、`realm`、`guid`。
   - `level`、`classToken`、`professions`、`location`：各自只留 `value`、`recordedAt`（數字，必填）、`via`（只接受 `author`、`relay`）。`professions.value[*]` 只留 `skillLineID`、`name`、`rank`、`max`；`location.value` 只留 `zone`、`subZone`。
   - `recipes["<skillLineID>"]`：`recordedAt`（必填）、`via`、`hash`、`ids`（只留數字）。
-  - `withdrawn`：`all`、`location`、`recipes["<skillLineID>"]`，都是時間（數字）。`withdrawn.location` 是撤回的時間，不是位置。
+  - `withdrawn`：`recipes["<skillLineID>"]`（放棄專業的時間）。舊版工具箱可能還會寫 `all`、`location`，GF Sync 照樣接受並上傳，由網站決定要不要處理。都是時間（數字）；`withdrawn.location` 是時間，不是位置。
 - `recipe.names`：`{ locale, names = { ["<配方 ID>"] = "名稱" } }`，原樣上傳。
 - `roster.snapshot`（某位成員看到的整份公會名冊）：`total`，以及每位成員的 `name`、`guid`、`level`、`classToken`、`race`、`raceID`、`guildRank`、`professions`、`professionSource`。
 
-**所在地只有成員自己同意分享的資料。** `character.self` 和 `member.report` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略；插件預設開啟，每位玩家都可以在「設定」關掉）。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。`member.share` 的 `location` 是 `{ value = { zone, subZone }, recordedAt, via }`，`value` 用同樣的規則。
+**所在地只出現在成員自己的資料裡。** `character.self` 和 `member.report` 的 payload 可以帶 `location = { zone = "...", subZone = "..." }`（`subZone` 可以省略）。D-015 起裝了工具箱就會分享，沒有開關。GF Sync 只保留這兩個字串欄位，每個最多 60 個字元；`zone` 不合格就整個 `location` 都不上傳，`subZone` 不合格就只拿掉 `subZone`，其他鍵一律丟掉。`member.share` 的 `location` 是 `{ value = { zone, subZone }, recordedAt, via }`，`value` 用同樣的規則。
 
 **其他地方都不包含所在地和在線狀態。** 就算插件的某個版本寫了 `zone`、`online` 或 `location`，GF Sync 上傳前也會把它們從項目本身、payload 和每位成員的資料中移除（`roster.snapshot` 永遠不帶任何成員的所在地）。記錄檔不會記錄所在地或 `subject` 的名稱；`member.report`、`member.share` 的 id 如果不是「GUID:數字:member.<kind>」（可以再接「:GUID」）的格式，記錄檔只寫 `member.<kind>~` 加 4 碼雜湊。
 

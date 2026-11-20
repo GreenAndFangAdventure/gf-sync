@@ -20,11 +20,14 @@
 
 ## 會上傳哪些資料
 
-角色名稱、伺服器、陣營、公會與階級、等級、職業、種族、專業、自己角色的所在地（區域名稱，預設開啟，可以在工具箱「設定」裡關掉）、自己的配方清單、其他成員在遊戲內分享或轉傳給你的等級、專業、配方與所在地（他們可以在遊戲內關閉分享）、配方名稱對照，以及公會名冊快照（成員名稱、等級、職業、種族、階級、專業）。**公會名冊不會帶任何成員的所在地，也不會上傳在線狀態。** 完整欄位與保存方式見 [`PRIVACY.md`](PRIVACY.md)，技術格式見 [`docs/FORMAT.md`](docs/FORMAT.md)。
+角色名稱、伺服器、陣營、公會與階級、等級、職業、種族、專業、自己角色的所在地（區域名稱）、自己的配方清單、其他成員在遊戲內分享或轉傳給你的等級、專業、配方與所在地、配方名稱對照，以及公會名冊快照（成員名稱、等級、職業、種族、階級、專業）。**公會名冊不會帶任何成員的所在地，也不會上傳在線狀態。** 完整欄位與保存方式見 [`PRIVACY.md`](PRIVACY.md)，技術格式見 [`docs/FORMAT.md`](docs/FORMAT.md)。
 
-## 暫停或關閉
+裝了綠皮冒險工具箱就代表同意分享，工具箱在遊戲內沒有關閉分享或所在地的開關；不想分享的話，請不要安裝工具箱。
 
-- 遊戲內：在綠皮冒險工具箱的「設定」關閉同步（進階：輸入 `/gf sync off`），GF Sync 就不會上傳這個帳號的資料。
+## 暫停或停止上傳
+
+停止上傳的方法是暫停或解除安裝 GF Sync。這只會停止這台電腦上傳；你在遊戲內分享出去的資料，仍然可能由其他成員的 GF Sync 上傳。
+
 - 工作列選單勾選「暫停同步」：重新開機後仍然有效，取消勾選才會恢復。
 - 到 <https://greenandfangadventure.com/pages/sync-devices> 撤銷這台電腦。
 
@@ -103,8 +106,8 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 **GF Sync** is a small Windows tray app for the World of Warcraft guild 綠皮與獠牙冒險事務所 ("Green and Fang Adventure"). It reads the SavedVariables file written by the guild's in-game AddOn (read-only, never executing Lua and never modifying game files) and uploads character and roster data to the guild website, greenandfangadventure.com, after a one-time device pairing via Discord login.
 
 - **Install (three steps):** download `GFSync-Setup-<version>.exe` from GitHub Releases, run it and click through (the privacy policy is shown; no admin rights, nothing to change), then allow the device on the guild website with Discord — GF Sync opens the page by itself and shows a "connected" notification when done. Autostart uses a shortcut in the user's Startup folder.
-- **Data:** character name, realm, faction, guild and rank, level, class, race, professions, and guild roster snapshots. Your own character's zone is included (on by default, can be turned off in the AddOn's settings); so are your recipe list and the level, professions, recipes and locations other members shared or relayed in game (they can turn sharing off). Roster members' locations and online status are never uploaded. See [PRIVACY.md](PRIVACY.md).
-- **Stop syncing:** turn sync off in the AddOn's settings (or `/gf sync off`), "暫停同步" (Pause) in the tray menu, or revoke the device on the website.
+- **Data:** character name, realm, faction, guild and rank, level, class, race, professions, and guild roster snapshots. Your own character's zone is included; so are your recipe list and the level, professions, recipes and locations other members shared or relayed in game. Installing the AddOn means agreeing to share; it has no switch to turn sharing off. Roster members' locations and online status are never uploaded. See [PRIVACY.md](PRIVACY.md).
+- **Stop uploading:** "暫停同步" (Pause) in the tray menu, revoke the device on the website, or uninstall GF Sync. This stops this computer only; data you share in game may still be uploaded by other members.
 - **Uninstall:** tray menu "解除安裝 GF Sync…", the Start menu uninstall shortcut, or Windows Settings → Apps.
 - **Build:** Go + Inno Setup 6, `build.ps1 -Version <x.y.z>`; releases are built by GitHub Actions.
 - **License:** code is MIT. The guild emblem in `assets/brand/` and the icons made from it are **not** MIT licensed (all rights reserved; see `assets/brand/README.md`). Code signing: see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).

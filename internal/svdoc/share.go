@@ -12,7 +12,9 @@ import "strings"
 //     A field without a valid value or a numeric recordedAt is dropped.
 //   - recipes[<skillLineID>]: { recordedAt, via, hash, ids }.
 //   - withdrawn: { all, location, recipes[<skillLineID>] }, all numbers.
-//     withdrawn.location is a time, not a place.
+//     withdrawn.location is a time, not a place. Since D-015 the AddOn
+//     only writes recipes; all and location may still come from older
+//     AddOns and are passed on for the site to decide.
 func sharePayload(v any) (map[string]any, bool) {
 	in, ok := v.(map[string]any)
 	if !ok {
