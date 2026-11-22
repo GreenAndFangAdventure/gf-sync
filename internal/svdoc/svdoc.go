@@ -339,8 +339,8 @@ func locationText(v any) (string, bool) { return boundedText(v, MaxLocationLen) 
 const MaxSubjectLen = 64
 
 // keepSubject rebuilds a member.report payload.subject from only name,
-// realm and guid. name is required (a non-empty string of at most
-// MaxSubjectLen characters), or the entry is malformed; realm and guid are
+// realm, guid and fullName. name is required (a non-empty string of at most
+// MaxSubjectLen characters), or the entry is malformed; the others are
 // kept only when they are such strings.
 func keepSubject(entry map[string]any) bool {
 	payload, ok := entry["payload"].(map[string]any)
@@ -355,8 +355,10 @@ func keepSubject(entry map[string]any) bool {
 	return true
 }
 
-// subjectOf rebuilds a subject from only name (required), realm and guid;
-// nil when there is no valid name.
+// subjectOf rebuilds a subject from only name (required), realm, guid and
+// fullName; nil when there is no valid name. fullName is the full name as
+// the Blizzard roster shows it ("名字 姓氏"), which the site matches on; it
+// is kept exactly as written (no trimming, inner spaces stay).
 func subjectOf(v any) map[string]any {
 	subj, ok := v.(map[string]any)
 	if !ok {
@@ -367,7 +369,7 @@ func subjectOf(v any) map[string]any {
 		return nil
 	}
 	out := map[string]any{"name": name}
-	for _, k := range []string{"realm", "guid"} {
+	for _, k := range []string{"realm", "guid", "fullName"} {
 		if v, ok := boundedText(subj[k], MaxSubjectLen); ok {
 			out[k] = v
 		}

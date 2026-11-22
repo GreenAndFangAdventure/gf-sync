@@ -30,17 +30,18 @@ GreenFangToolkitDB = {
   kind = "character.self" | "roster.snapshot" | "member.report",  -- 其他 kind 一律忽略
   capturedAt = 1763370000,                      -- Unix 秒
   game = { world = "forever", interface = 16001, realm = "...", locale = "zhTW" },
-  uploader = { guid = "...", name = "...", realm = "...", faction = "Horde",
+  uploader = { guid = "...", name = "...", fullName = "名字 姓氏", realm = "...", faction = "Horde",
                guild = "...", guildRank = "..." },
   payload = { ... },
 }
 ```
 
 - `character.self`（角色本人回報）：`level`、`class`、`classToken`、`race`、`raceID`、`professions`（名稱、技能 ID、等級、上限），以及 `recipes`（`["<skillLineID>"] = { recordedAt, hash, ids }`，原樣上傳）。
+- `fullName`（`uploader` 和 `subject`）是 Blizzard 公會名冊上的完整名稱「名字 + 半形空格 + 姓氏」（例如「塔塔史克立 碎骨」），網站用它比對角色；`name` 只有名字。GF Sync 原樣上傳，不修剪空格。`uploader` 整個原樣上傳；`subject.fullName` 不是 1–64 個字元的字串時只拿掉這個欄位。
 - 每一種 kind 都要有 `id`、`kind`、`capturedAt`（數字）、`game`、`uploader`、`payload`。`capturedAtServer`（遊戲伺服器時間）不是數字時，GF Sync 只拿掉這個欄位。
-- `member.report`（其他成員在遊戲內分享給你的**他們自己**的資料；`uploader` 是收到的本機角色，一樣只接受本公會）：`subject = { name, realm, guid }`、`reportedAt`、`level`、`classToken`、`professions`（`name`、`skillLineID`、`rank`、`max`），以及對方同意時的 `location`。`subject` 只保留 `name`、`realm`、`guid` 三個字串（每個最多 64 個字元），沒有 `name` 的項目不上傳。
+- `member.report`（其他成員在遊戲內分享給你的**他們自己**的資料；`uploader` 是收到的本機角色，一樣只接受本公會）：`subject = { name, realm, guid, fullName }`、`reportedAt`、`level`、`classToken`、`professions`（`name`、`skillLineID`、`rank`、`max`），以及對方同意時的 `location`。`subject` 只保留 `name`、`realm`、`guid`、`fullName` 四個字串（每個最多 64 個字元），沒有 `name` 的項目不上傳。
 - `member.share`（成員分享、可能經過轉傳的資料，每個欄位帶原作者的記錄時間）：GF Sync 依固定清單重建 payload，清單以外的鍵一律丟掉：
-  - `subject`：`name`（必填）、`realm`、`guid`。
+  - `subject`：`name`（必填）、`realm`、`guid`、`fullName`。
   - `level`、`classToken`、`professions`、`location`：各自只留 `value`、`recordedAt`（數字，必填）、`via`（只接受 `author`、`relay`）。`professions.value[*]` 只留 `skillLineID`、`name`、`rank`、`max`；`location.value` 只留 `zone`、`subZone`。
   - `recipes["<skillLineID>"]`：`recordedAt`（必填）、`via`、`hash`、`ids`（只留數字）。
   - `withdrawn`：`recipes["<skillLineID>"]`（放棄專業的時間）。舊版工具箱可能還會寫 `all`、`location`，GF Sync 照樣接受並上傳，由網站決定要不要處理。都是時間（數字）；`withdrawn.location` 是時間，不是位置。

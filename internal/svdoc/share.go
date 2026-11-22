@@ -7,7 +7,7 @@ import "strings"
 // the AddOn wrote. ok is false when the subject has no valid name (the
 // entry is then malformed and skipped).
 //
-//   - subject: name (required), realm, guid.
+//   - subject: name (required), realm, guid, fullName.
 //   - level, classToken, professions, location: { value, recordedAt, via }.
 //     A field without a valid value or a numeric recordedAt is dropped.
 //   - recipes[<skillLineID>]: { recordedAt, via, hash, ids }.

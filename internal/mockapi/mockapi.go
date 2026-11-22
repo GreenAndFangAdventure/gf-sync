@@ -586,7 +586,7 @@ func anyPrivateKey(v any) bool {
 }
 
 // subjectOnly reports whether a member.report payload.subject is present
-// with a name and nothing but name, realm and guid strings (D-011).
+// with a name and nothing but name, realm, guid and fullName strings (D-011).
 func subjectOnly(raw []byte) bool {
 	var item struct {
 		Payload struct {
@@ -600,7 +600,7 @@ func subjectOnly(raw []byte) bool {
 		return false
 	}
 	for k, v := range item.Payload.Subject {
-		if _, ok := v.(string); !ok || (k != "name" && k != "realm" && k != "guid") {
+		if _, ok := v.(string); !ok || (k != "name" && k != "realm" && k != "guid" && k != "fullName") {
 			return false
 		}
 	}
