@@ -26,8 +26,9 @@ var (
 // The enumerations listed in §crafting. No other string is ever kept.
 var (
 	enumSrc      = set("g", "w", "d") // where the order was made, as the id prefix
-	enumCst      = set("open", "deal", "cancel", "returned")
+	enumCst      = set("open", "review", "deal", "cancel", "returned")
 	enumJst      = set("accept", "decline", "drop", "delivered")
+	enumDelivery = set("trade", "mail", "manual")
 	enumClose    = set("deal", "cancel")
 	enumClosedBy = set("customer", "crafter", "web")
 	enumCloseHow = set("trade", "mail", "manual", "timeout")
@@ -77,6 +78,7 @@ var customerHalf = merge(map[string]fieldSpec{
 	"customer":   {kind: fGUID},
 	"crafter":    {kind: fGUIDStar},
 	"lock":       {kind: fGUID},
+	"lockedAt":   {kind: fNum},
 	"recipe":     {kind: fNum},
 	"item":       {kind: fNum},
 	"qty":        {kind: fPositive},
@@ -90,9 +92,12 @@ var customerHalf = merge(map[string]fieldSpec{
 
 // crafterHalf is order.j.
 var crafterHalf = merge(map[string]fieldSpec{
-	"recordedAt": {kind: fNum},
-	"jst":        {fEnum, enumJst},
-	"gave":       {kind: fNum},
+	"recordedAt":   {kind: fNum},
+	"jst":          {fEnum, enumJst},
+	"gave":         {kind: fNum},
+	"acceptedAt":   {kind: fNum},
+	"deliveredAt":  {kind: fNum},
+	"deliveredHow": {fEnum, enumDelivery},
 }, closeFields)
 
 func merge(a, b map[string]fieldSpec) map[string]fieldSpec {
@@ -206,8 +211,10 @@ func craftingService(v any) map[string]any {
 }
 
 // craftingOrders keeps orders with a valid id and at least one valid half
-// (w, j). Over MaxCraftingOrders, the oldest closed orders go first, then
-// (if still too many) the oldest open ones.
+// (w, j). Over MaxCraftingOrders, the closed orders with the oldest
+// closedAt go first, then (if still too many) the open ones with the
+// oldest w.created (recordedAt is the author's whole record, not the
+// order, so it says nothing about the order's age).
 func craftingOrders(v any) map[string]any {
 	in, ok := v.(map[string]any)
 	if !ok {
@@ -217,7 +224,7 @@ func craftingOrders(v any) map[string]any {
 		id     string
 		order  map[string]any
 		closed bool
-		at     int64 // closedAt for closed orders, else the latest recordedAt
+		at     int64 // closedAt for closed orders, else w.created (0 if unknown)
 	}
 	var list []kept
 	for id, o := range in {
@@ -236,12 +243,8 @@ func craftingOrders(v any) map[string]any {
 			}
 		}
 		if !k.closed {
-			for _, half := range []string{"w", "j"} {
-				h, _ := order[half].(map[string]any)
-				if r, ok := h["recordedAt"].(int64); ok && r > k.at {
-					k.at = r
-				}
-			}
+			w, _ := order["w"].(map[string]any)
+			k.at, _ = w["created"].(int64)
 		}
 		list = append(list, k)
 	}
@@ -269,8 +272,8 @@ func craftingOrders(v any) map[string]any {
 	return out
 }
 
-// craftingOrder is { w, j }; nil if a present half is invalid (the whole
-// order is dropped) or neither half is there.
+// craftingOrder is { w, j }. An invalid half is dropped alone and the
+// other one kept; nil when neither half is valid.
 func craftingOrder(v any) map[string]any {
 	in, ok := v.(map[string]any)
 	if !ok {
@@ -282,11 +285,9 @@ func craftingOrder(v any) map[string]any {
 		if !present {
 			continue
 		}
-		clean := craftingHalf(h, spec)
-		if clean == nil {
-			return nil
+		if clean := craftingHalf(h, spec); clean != nil {
+			out[half] = clean
 		}
-		out[half] = clean
 	}
 	if len(out) == 0 {
 		return nil
@@ -294,8 +295,8 @@ func craftingOrder(v any) map[string]any {
 	return out
 }
 
-// craftingHalf keeps the listed keys of one half; nil if one of them has
-// the wrong type or recordedAt is missing.
+// craftingHalf keeps the listed keys of one half; nil (the half is
+// dropped) if one of them has the wrong type or recordedAt is missing.
 func craftingHalf(v any, spec map[string]fieldSpec) map[string]any {
 	in, ok := v.(map[string]any)
 	if !ok {

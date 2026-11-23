@@ -15,21 +15,22 @@ const goodCrafting = `crafting = {
   orders = {
     ["g3k9.mabc12"] = {
       w = { recordedAt = 1763373590, src = "g", ver = 1, created = 1763370000,
-            customer = "Player-0000-0000000A", crafter = "*", lock = "Player-0000-0000000B",
+            customer = "Player-0000-0000000A", crafter = "*", lock = "Player-0000-0000000B", lockedAt = 1763370500,
             recipe = 2660, item = 2862, qty = 5, mats = { ["2835"] = 5 },
             fee = 500, feeQuoted = 500, quote = 120, cst = "open", got = 2,
             close = "deal", closedBy = "customer", closeHow = "trade", closedAt = 1763373590 },
       j = { recordedAt = 1763373000, jst = "delivered", gave = 5,
+            acceptedAt = 1763371000, deliveredAt = 1763372500, deliveredHow = "mail",
             close = "deal", closedBy = "crafter", closeHow = "timeout", closedAt = 1763373000 },
     },
     ["w7.x"] = { w = { recordedAt = 5, src = "w", customer = "Player-0000-0000000A", crafter = "Player-0000-0000000B",
-                       recipe = 1, qty = 1, fee = 0, cst = "open" } },
+                       recipe = 1, qty = 1, fee = 0, cst = "review" } },
   },
 }`
 
-const goodCraftingJSON = `{"orders":{"g3k9.mabc12":{"j":{"close":"deal","closeHow":"timeout","closedAt":1763373000,"closedBy":"crafter","gave":5,"jst":"delivered","recordedAt":1763373000},` +
-	`"w":{"close":"deal","closeHow":"trade","closedAt":1763373590,"closedBy":"customer","crafter":"*","created":1763370000,"cst":"open","customer":"Player-0000-0000000A","fee":500,"feeQuoted":500,"got":2,"item":2862,"lock":"Player-0000-0000000B","mats":{"2835":5},"qty":5,"quote":120,"recipe":2660,"recordedAt":1763373590,"src":"g","ver":1}},` +
-	`"w7.x":{"w":{"crafter":"Player-0000-0000000B","cst":"open","customer":"Player-0000-0000000A","fee":0,"qty":1,"recipe":1,"recordedAt":5,"src":"w"}}},` +
+const goodCraftingJSON = `{"orders":{"g3k9.mabc12":{"j":{"acceptedAt":1763371000,"close":"deal","closeHow":"timeout","closedAt":1763373000,"closedBy":"crafter","deliveredAt":1763372500,"deliveredHow":"mail","gave":5,"jst":"delivered","recordedAt":1763373000},` +
+	`"w":{"close":"deal","closeHow":"trade","closedAt":1763373590,"closedBy":"customer","crafter":"*","created":1763370000,"cst":"open","customer":"Player-0000-0000000A","fee":500,"feeQuoted":500,"got":2,"item":2862,"lock":"Player-0000-0000000B","lockedAt":1763370500,"mats":{"2835":5},"qty":5,"quote":120,"recipe":2660,"recordedAt":1763373590,"src":"g","ver":1}},` +
+	`"w7.x":{"w":{"crafter":"Player-0000-0000000B","cst":"review","customer":"Player-0000-0000000A","fee":0,"qty":1,"recipe":1,"recordedAt":5,"src":"w"}}},` +
 	`"services":{"recordedAt":1763373590,"value":{"164":{"active":true,"fee":10000,"recipes":{"2660":500,"2661":0}},"171":{"active":false}}}}`
 
 func shareWith(crafting string) string {
@@ -69,7 +70,7 @@ func TestCraftingMissingFeeStaysMissing(t *testing.T) {
 	if !strings.Contains(s, `"171":{"active":false}`) {
 		t.Errorf("171 should have no fee: %s", s)
 	}
-	if strings.Contains(s, `"w7.x":{"w":{"crafter":"Player-0000-0000000B","cst":"open","customer":"Player-0000-0000000A","fee":0,"feeQuoted"`) {
+	if strings.Contains(s, `"w7.x":{"w":{"crafter":"Player-0000-0000000B","cst":"review","customer":"Player-0000-0000000A","fee":0,"feeQuoted"`) {
 		t.Errorf("feeQuoted invented: %s", s)
 	}
 }
@@ -99,12 +100,19 @@ func TestCraftingStripsTextAndBadItems(t *testing.T) {
 	    ["` + strings.Repeat("a", 65) + `"] = { w = { recordedAt = 1 } },
 	    ["g10"] = "不該上傳",
 	    ["g11"] = { note = "不該上傳" },                                                -- no half left
+	    ["g12"] = { w = { recordedAt = 3, customer = "Player-0000-0000000A", qty = 2, cst = "open" },
+	                j = { recordedAt = 3, jst = "maybe" } },                              -- bad j: keep w
+	    ["g13"] = { w = { recordedAt = 4, customer = "虛構甲" },                          -- bad w: keep j
+	                j = { recordedAt = 4, jst = "accept", deliveredHow = "mail", acceptedAt = 9 } },
+	    ["g14"] = { w = { recordedAt = 5, cst = "maybe" }, j = { recordedAt = 5, deliveredHow = "pigeon" } }, -- both bad
 	  },
 	}`
 	for name, entry := range map[string]string{"member.share": shareWith(bad), "character.self": selfWith(bad)} {
 		c, _ := craftingOf(t, entry)
 		got := asJSON(c)
-		want := `{"orders":{"g1":{"j":{"jst":"accept","recordedAt":2},"w":{"crafter":"*","cst":"open","customer":"Player-0000-0000000A","qty":1,"recordedAt":1}}},` +
+		want := `{"orders":{"g1":{"j":{"jst":"accept","recordedAt":2},"w":{"crafter":"*","cst":"open","customer":"Player-0000-0000000A","qty":1,"recordedAt":1}},` +
+			`"g12":{"w":{"cst":"open","customer":"Player-0000-0000000A","qty":2,"recordedAt":3}},` +
+			`"g13":{"j":{"acceptedAt":9,"deliveredHow":"mail","jst":"accept","recordedAt":4}}},` +
 			`"services":{"recordedAt":10,"value":{"164":{"active":true,"fee":100,"recipes":{"1":5}}}}}`
 		if got != want {
 			t.Errorf("%s:\n got %s\nwant %s", name, got, want)
@@ -117,7 +125,7 @@ func TestCraftingStripsTextAndBadItems(t *testing.T) {
 func assertOnlyAllowedStrings(t *testing.T, v any) {
 	t.Helper()
 	allowed := map[string]bool{"*": true}
-	for _, e := range []map[string]bool{enumSrc, enumCst, enumJst, enumClose, enumClosedBy, enumCloseHow} {
+	for _, e := range []map[string]bool{enumSrc, enumCst, enumJst, enumDelivery, enumClose, enumClosedBy, enumCloseHow} {
 		for k := range e {
 			allowed[k] = true
 		}
@@ -201,5 +209,21 @@ func TestCraftingLimits(t *testing.T) {
 	}
 	if orders["c6"] == nil || orders["c100"] == nil {
 		t.Error("newer closed orders dropped")
+	}
+}
+
+// Only open orders over the limit: the oldest w.created go (recordedAt is
+// the same for all of one author's orders and says nothing).
+func TestCraftingLimitOpenByCreated(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`crafting = { orders = {`)
+	for i := 1; i <= MaxCraftingOrders+2; i++ {
+		fmt.Fprintf(&b, `["o%d"] = { w = { recordedAt = 999, created = %d, cst = "open" } }, `, i, i)
+	}
+	b.WriteString(`} }`)
+	c, _ := craftingOf(t, selfWith(b.String()))
+	orders := c.(map[string]any)["orders"].(map[string]any)
+	if len(orders) != MaxCraftingOrders || orders["o1"] != nil || orders["o2"] != nil || orders["o3"] == nil || orders["o102"] == nil {
+		t.Fatalf("kept %d orders; o1 %v o2 %v o3 %v", len(orders), orders["o1"] != nil, orders["o2"] != nil, orders["o3"] != nil)
 	}
 }
