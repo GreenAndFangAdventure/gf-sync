@@ -15,12 +15,12 @@ const goodCrafting = `crafting = {
   orders = {
     ["g3k9.mabc12"] = {
       w = { recordedAt = 1763373590, src = "g", ver = 1, created = 1763370000,
-            customer = "Player-0000-0000000A", crafter = "*", lock = "Player-0000-0000000B", lockedAt = 1763370500,
+            customer = "Player-0000-0000000A", crafter = "*", lock = "Player-0000-0000000B", lockedAt = 1763370500, returnedAt = 1763371500,
             recipe = 2660, item = 2862, qty = 5, mats = { ["2835"] = 5 },
             fee = 500, feeQuoted = 500, quote = 120, cst = "open", got = 2,
             close = "deal", closedBy = "customer", closeHow = "trade", closedAt = 1763373590 },
       j = { recordedAt = 1763373000, jst = "delivered", gave = 5,
-            acceptedAt = 1763371000, deliveredAt = 1763372500, deliveredHow = "mail",
+            acceptedAt = 1763371000, deliveredAt = 1763372500, deliveredHow = "mail", statusAt = 1763372500,
             close = "deal", closedBy = "crafter", closeHow = "timeout", closedAt = 1763373000 },
     },
     ["w7.x"] = { w = { recordedAt = 5, src = "w", customer = "Player-0000-0000000A", crafter = "Player-0000-0000000B",
@@ -28,8 +28,8 @@ const goodCrafting = `crafting = {
   },
 }`
 
-const goodCraftingJSON = `{"orders":{"g3k9.mabc12":{"j":{"acceptedAt":1763371000,"close":"deal","closeHow":"timeout","closedAt":1763373000,"closedBy":"crafter","deliveredAt":1763372500,"deliveredHow":"mail","gave":5,"jst":"delivered","recordedAt":1763373000},` +
-	`"w":{"close":"deal","closeHow":"trade","closedAt":1763373590,"closedBy":"customer","crafter":"*","created":1763370000,"cst":"open","customer":"Player-0000-0000000A","fee":500,"feeQuoted":500,"got":2,"item":2862,"lock":"Player-0000-0000000B","lockedAt":1763370500,"mats":{"2835":5},"qty":5,"quote":120,"recipe":2660,"recordedAt":1763373590,"src":"g","ver":1}},` +
+const goodCraftingJSON = `{"orders":{"g3k9.mabc12":{"j":{"acceptedAt":1763371000,"close":"deal","closeHow":"timeout","closedAt":1763373000,"closedBy":"crafter","deliveredAt":1763372500,"deliveredHow":"mail","gave":5,"jst":"delivered","recordedAt":1763373000,"statusAt":1763372500},` +
+	`"w":{"close":"deal","closeHow":"trade","closedAt":1763373590,"closedBy":"customer","crafter":"*","created":1763370000,"cst":"open","customer":"Player-0000-0000000A","fee":500,"feeQuoted":500,"got":2,"item":2862,"lock":"Player-0000-0000000B","lockedAt":1763370500,"mats":{"2835":5},"qty":5,"quote":120,"recipe":2660,"recordedAt":1763373590,"returnedAt":1763371500,"src":"g","ver":1}},` +
 	`"w7.x":{"w":{"crafter":"Player-0000-0000000B","cst":"review","customer":"Player-0000-0000000A","fee":0,"qty":1,"recipe":1,"recordedAt":5,"src":"w"}}},` +
 	`"services":{"recordedAt":1763373590,"value":{"164":{"active":true,"fee":10000,"recipes":{"2660":500,"2661":0}},"171":{"active":false}}}}`
 
@@ -104,6 +104,8 @@ func TestCraftingStripsTextAndBadItems(t *testing.T) {
 	                j = { recordedAt = 3, jst = "maybe" } },                              -- bad j: keep w
 	    ["g13"] = { w = { recordedAt = 4, customer = "虛構甲" },                          -- bad w: keep j
 	                j = { recordedAt = 4, jst = "accept", deliveredHow = "mail", acceptedAt = 9 } },
+	    ["g15"] = { w = { recordedAt = 6, returnedAt = -1 }, j = { recordedAt = 6, jst = "drop", statusAt = 7 } },     -- bad w: keep j
+	    ["g16"] = { w = { recordedAt = 7, cst = "returned", returnedAt = 8 }, j = { recordedAt = 7, statusAt = "昨天" } }, -- bad j: keep w
 	    ["g14"] = { w = { recordedAt = 5, cst = "maybe" }, j = { recordedAt = 5, deliveredHow = "pigeon" } }, -- both bad
 	  },
 	}`
@@ -112,7 +114,9 @@ func TestCraftingStripsTextAndBadItems(t *testing.T) {
 		got := asJSON(c)
 		want := `{"orders":{"g1":{"j":{"jst":"accept","recordedAt":2},"w":{"crafter":"*","cst":"open","customer":"Player-0000-0000000A","qty":1,"recordedAt":1}},` +
 			`"g12":{"w":{"cst":"open","customer":"Player-0000-0000000A","qty":2,"recordedAt":3}},` +
-			`"g13":{"j":{"acceptedAt":9,"deliveredHow":"mail","jst":"accept","recordedAt":4}}},` +
+			`"g13":{"j":{"acceptedAt":9,"deliveredHow":"mail","jst":"accept","recordedAt":4}},` +
+			`"g15":{"j":{"jst":"drop","recordedAt":6,"statusAt":7}},` +
+			`"g16":{"w":{"cst":"returned","recordedAt":7,"returnedAt":8}}},` +
 			`"services":{"recordedAt":10,"value":{"164":{"active":true,"fee":100,"recipes":{"1":5}}}}}`
 		if got != want {
 			t.Errorf("%s:\n got %s\nwant %s", name, got, want)

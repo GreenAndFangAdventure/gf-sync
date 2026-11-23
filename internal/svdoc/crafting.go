@@ -79,6 +79,7 @@ var customerHalf = merge(map[string]fieldSpec{
 	"crafter":    {kind: fGUIDStar},
 	"lock":       {kind: fGUID},
 	"lockedAt":   {kind: fNum},
+	"returnedAt": {kind: fNum},
 	"recipe":     {kind: fNum},
 	"item":       {kind: fNum},
 	"qty":        {kind: fPositive},
@@ -98,6 +99,7 @@ var crafterHalf = merge(map[string]fieldSpec{
 	"acceptedAt":   {kind: fNum},
 	"deliveredAt":  {kind: fNum},
 	"deliveredHow": {fEnum, enumDelivery},
+	"statusAt":     {kind: fNum},
 }, closeFields)
 
 func merge(a, b map[string]fieldSpec) map[string]fieldSpec {
