@@ -88,6 +88,12 @@ func main() {
 			lg.Printf("update: checks off: %v", err)
 		}
 	}
+	if ic, why := inboxConfig(inboxFeature, base); ic != nil {
+		cfg.Inbox = ic
+		lg.Printf("inbox: on (%d key(s))", len(ic.Keys))
+	} else if why != "" {
+		lg.Printf("%s", why)
+	}
 	a.eng = engine.New(cfg)
 	systray.Run(a.onReady, a.onExit)
 }

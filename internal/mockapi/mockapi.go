@@ -72,6 +72,9 @@ type Server struct {
 	failures      []failure
 	startFailures []failure
 	nextID        int
+
+	inbox      string // signed GFIN1 string for GET /api/sync/inbox ("" = 404)
+	inboxCalls int
 }
 
 // New returns a mock with short intervals.
@@ -111,6 +114,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.poll(w, r)
 	case r.Method == "POST" && r.URL.Path == "/api/sync/upload":
 		s.upload(w, r)
+	case r.Method == "GET" && r.URL.Path == "/api/sync/inbox":
+		s.inboxGet(w, r)
 	case r.URL.Path == "/pages/sync-pair":
 		s.pairPage(w, r)
 	case r.URL.Path == "/" || r.URL.Path == "/pages/forever":
