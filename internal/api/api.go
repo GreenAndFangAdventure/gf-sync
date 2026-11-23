@@ -161,22 +161,7 @@ func (c *Client) do(ctx context.Context, method, path, token string, body any, o
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		he := &HTTPError{Status: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
-			CFRay: oneLine([]byte(resp.Header.Get("CF-Ray")), 64)}
-		var eb struct {
-			Error      string `json:"error"`
-			Message    string `json:"message"`
-			MinVersion string `json:"minVersion"`
-			Download   string `json:"download"`
-		}
-		if json.Unmarshal(data, &eb) == nil {
-			he.Message = firstNonEmpty(eb.Message, eb.Error)
-			he.Code, he.MinVersion, he.Download = eb.Error, eb.MinVersion, eb.Download
-		}
-		if he.Message == "" {
-			he.Diag = diag(he.CFRay, resp.Header.Get("Content-Type"), data, token)
-		}
-		return he
+		return responseError(resp, data, token)
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
@@ -229,6 +214,26 @@ func oneLine(b []byte, max int) string {
 		}
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// responseError turns a non-2xx response into an *HTTPError.
+func responseError(resp *http.Response, data []byte, token string) *HTTPError {
+	he := &HTTPError{Status: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		CFRay: oneLine([]byte(resp.Header.Get("CF-Ray")), 64)}
+	var eb struct {
+		Error      string `json:"error"`
+		Message    string `json:"message"`
+		MinVersion string `json:"minVersion"`
+		Download   string `json:"download"`
+	}
+	if json.Unmarshal(data, &eb) == nil {
+		he.Message = firstNonEmpty(eb.Message, eb.Error)
+		he.Code, he.MinVersion, he.Download = eb.Error, eb.MinVersion, eb.Download
+	}
+	if he.Message == "" {
+		he.Diag = diag(he.CFRay, resp.Header.Get("Content-Type"), data, token)
+	}
+	return he
 }
 
 func firstNonEmpty(a ...string) string {

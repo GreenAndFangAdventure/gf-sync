@@ -58,6 +58,10 @@ type Config struct {
 	CheckUpdate func(ctx context.Context) (*update.Result, error)
 	UpdateFirst time.Duration // first check after Run (default 2m)
 	UpdateEvery time.Duration // then every this long plus up to 1/12 jitter (default 24h)
+
+	// Inbox writes the site's pending web orders into the game (inbox.go).
+	// nil = off (the default; the site API is not ready).
+	Inbox *InboxConfig
 }
 
 // Update is a newer GF Sync the site and GitHub agree on.
@@ -405,6 +409,11 @@ func (e *Engine) Run(ctx context.Context) {
 	e.mu.Unlock()
 	if autoPair {
 		e.StartPairing()
+	}
+	if c := e.cfg.Inbox; c != nil && len(c.Keys) > 0 {
+		done := make(chan struct{})
+		go func() { e.inboxLoop(ctx); close(done) }()
+		defer func() { <-done }() // never outlive Run
 	}
 	t := time.NewTicker(e.cfg.Tick)
 	defer t.Stop()

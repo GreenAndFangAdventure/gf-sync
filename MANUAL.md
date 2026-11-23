@@ -84,3 +84,18 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.2.0
 1. 刪掉環境變數 `GFSYNC_API_BASE`，執行 `GFSync.exe`（不帶參數）。
 2. 預期瀏覽器開啟 `https://greenandfangadventure.com/pages/sync-pair?code=...`，用 Discord 登入後允許。
 3. 登出遊戲，確認網站名冊有更新；在 `/pages/sync-devices` 撤銷裝置後，GF Sync 預期顯示「這台電腦的配對已失效，請重新配對」。
+
+## 6. 網站訂單寫入遊戲（第 1.5 版，預設關閉，只能對模擬伺服器測）
+
+這個功能要用建置開關才會開，而且目前只接受 `gfsync-mock` 的**測試金鑰**（正式站還沒有公鑰）。
+
+1. 建一個開了開關的測試版（不要拿去發布）：`go build -trimpath -ldflags "-H windowsgui -X main.version=0.0.0-inbox -X main.inboxFeature=on" -o dist\GFSync-inbox-test.exe ./cmd/gfsync`
+2. 啟動模擬伺服器並提供一份假的訂單清單：`go run ./cmd/gfsync-mock -auto-approve -inbox`
+3. 另一個 PowerShell：`dist\GFSync-inbox-test.exe --api http://127.0.0.1:8787`，配對完成。
+4. 預期（約 30 秒內）：
+   - `_forever_\Interface\AddOns\GreenFangToolkit_Inbox\` 出現，裡面只有 `GreenFangToolkit_Inbox.toc` 和 `Inbox.lua` 兩個檔案。
+   - `Inbox.lua` 只有一行，開頭是 `GreenFangToolkit_Inbox = "GFIN1~`。
+   - `gfsync.log` 有 `inbox: on (1 key(s))` 和 `inbox: wrote 1 web orders`，沒有清單內容。
+   - `WTF` 資料夾裡的檔案修改時間都沒變。
+5. 手動改掉 `.toc` 或 `Inbox.lua`，10 分鐘內（下一輪）預期被改回來。
+6. 一般建置（沒有開關）的 `gfsync.log` 不應該有任何 `inbox:` 開頭的紀錄，也不會建立這個資料夾。
