@@ -7,10 +7,10 @@
 ## 0. 建置
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.2.0
 ```
 
-預期：測試全部 `ok`，產生 `dist\GFSync.exe`、`dist\GFSync-Setup-0.1.1.exe`、`dist\SHA256SUMS.txt`。
+預期：測試全部 `ok`，產生 `dist\GFSync.exe`、`dist\GFSync-Setup-0.2.0.exe`、`dist\SHA256SUMS.txt`。
 
 ## 1. 對模擬伺服器配對（不需要網站）
 
@@ -53,12 +53,13 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
 
 - 關掉模擬伺服器再登出遊戲：預期圖示右下角出現紅點，選單顯示「無法連線到公會網站，稍後自動重試」；重開模擬伺服器後（最長約 30 分鐘，按「立即同步」可馬上重試）自動補傳，紅點消失。
 - `go run ./cmd/gfsync-mock -fail 3`：前三次上傳失敗，之後自動成功。
+- `go run ./cmd/gfsync-mock -fail 3 -fail-html`：同上，但回的是 HTML 錯誤頁（像 Cloudflare 的 503）。預期 `gfsync.log` 每次都有 `upload: HTTP 503; retry in …`，另外**只有一行** `upload: HTTP 503 response: cf-ray=… content-type=text/html… body(200 bytes max): …`（同一個狀態碼和 CF-Ray 機房一小時最多記一次），沒有 token 或上傳內容。
 - 找不到遊戲：把 `%APPDATA%\GFSync\state.json` 刪掉，並暫時把 `_forever_` 改名（或在沒有遊戲的電腦上測），啟動後預期跳出「找不到魔獸世界：永恆的資料夾」並開啟資料夾選擇器。
 
 ## 4. 安裝檔
 
-1. 先核對 SHA-256：`Get-FileHash dist\GFSync-Setup-0.1.1.exe -Algorithm SHA256`，和 `SHA256SUMS.txt` 一致。
-2. 執行 `GFSync-Setup-0.1.1.exe`。因為沒有數位簽章，預期 Windows SmartScreen 顯示「Windows 已保護您的電腦」：按「其他資訊」→「仍要執行」。**請截圖給網站下載頁的說明用。**
+1. 先核對 SHA-256：`Get-FileHash dist\GFSync-Setup-0.2.0.exe -Algorithm SHA256`，和 `SHA256SUMS.txt` 一致。
+2. 執行 `GFSync-Setup-0.2.0.exe`。因為沒有數位簽章，預期 Windows SmartScreen 顯示「Windows 已保護您的電腦」：按「其他資訊」→「仍要執行」。**請截圖給網站下載頁的說明用。**
 3. 預期：先顯示「隱私權政策」頁（內容是 `PRIVACY.md`，中文正常顯示、沒有亂碼）；不會跳 UAC（安裝在 `%LOCALAPPDATA%\Programs\GFSync`）；「開機時自動啟動 GF Sync（建議）」預設勾選、「在桌面建立捷徑」預設**不**勾選；完成頁可勾「現在啟動 GF Sync」。
 4. 檢查開機啟動：按 Win+R 輸入 `shell:startup`，預期有「綠皮同步（GF Sync）」捷徑，指向 `...\Programs\GFSync\GFSync.exe`；登錄檔 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` **不應該**有 `GFSync`（舊版 0.1.0 裝過的除外）。重新開機後圖示自動出現。
 5. 重新安裝並取消勾選自動啟動：預期「啟動」資料夾裡的捷徑被移除。
@@ -72,6 +73,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
    - `%APPDATA%\GFSync\state.json`、`token.dat` 的修改時間不變（GF Sync 不會重設或刪除它們）。
    - 防毒放行後重新啟動 GF Sync，⚠ 消失，`gfsync.log` 有「readable again」或正常的啟動紀錄。
    - 這一項只記錄結果；**不要**為了測試而修改防毒設定。
+9. 從 0.1.0 升級（0.1.0 沒有檢查更新的功能，玩家一定要自己下載新版安裝）：在已經裝好、配對好 0.1.0 的電腦上，直接執行 `GFSync-Setup-0.2.0.exe`，**不要**先解除安裝。
+   - 預期：安裝程式提示 GF Sync 正在執行並自動關閉它；裝完後工作列選單第一行是「GF Sync 0.2.0」；**不用重新配對**（`%APPDATA%\GFSync\token.dat` 還在）；之前排隊還沒送出的資料會繼續上傳。
+   - 工作列選單有「檢查更新」，按下去預期顯示目前已是最新版（或網站／GitHub 還沒有清單時的對應訊息），不會下載任何東西。
 
 注意：安裝版沒有 `--api` 參數，會連正式網站。要讓安裝版連模擬伺服器，先設定使用者環境變數 `GFSYNC_API_BASE=http://127.0.0.1:8787` 再啟動（測完記得刪掉）。
 

@@ -161,6 +161,8 @@ type Engine struct {
 	upd         *update.Result // last successful check
 	tooOld      *api.HTTPError // last 426, until an upload succeeds
 	addonTooOld bool
+
+	diag diagLimiter // unrecognized error bodies in the log (diag.go)
 }
 
 // Names for Status.Storage.
@@ -925,6 +927,7 @@ func (e *Engine) flush(ctx context.Context) {
 		e.lastErr = "無法連線到公會網站，稍後自動重試"
 		e.cfg.Logf("upload: %v; retry in %s", err, e.backoff+jitter)
 	}
+	e.logHTTPDiag("upload", err)
 }
 
 // StartPairing begins (or re-opens) the device pairing flow (contract §1).
@@ -1026,10 +1029,12 @@ func (e *Engine) pair(ctx context.Context) {
 		}
 		if !retryableStart(err) {
 			e.cfg.Logf("pair: start failed: %v", err)
+			e.logHTTPDiag("pair", err)
 			e.endPairing("無法開始配對，請稍後在選單按「配對這台電腦」")
 			return
 		}
 		e.cfg.Logf("pair: start failed: %v; retry in %s", err, wait)
+		e.logHTTPDiag("pair", err)
 		e.mu.Lock()
 		e.lastErr = "無法連線到公會網站，連上網路後會自動開始配對"
 		e.mu.Unlock()

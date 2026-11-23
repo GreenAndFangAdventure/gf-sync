@@ -1,14 +1,14 @@
 # Build GF Sync: run tests, build GFSync.exe, compile the Inno Setup installer,
 # and write SHA-256 checksums. Output goes to dist\ (not committed).
 #
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.2.0
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInstaller      # exe only
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipBuild          # installer from the existing dist\GFSync.exe
 #
 # CI (.github/workflows/build.yml) runs -SkipInstaller, signs the exe, then
 # -SkipBuild, so the installer packages the signed exe.
 param(
-    [string]$Version = "0.1.1",
+    [string]$Version = "0.2.0",
     [switch]$SkipTests,
     [switch]$SkipInstaller,
     [switch]$SkipBuild

@@ -265,6 +265,18 @@ func toEntry(item any) (Entry, bool) {
 		}
 	case KindMemberShare:
 		obj["payload"] = share
+	case "character.self":
+		// The rest of character.self goes as written; crafting is rebuilt
+		// with the member.share rules (savedvariables §3.11).
+		if p, ok := obj["payload"].(map[string]any); ok {
+			if _, has := p["crafting"]; has {
+				if c := craftingPayload(p["crafting"]); c != nil {
+					p["crafting"] = c
+				} else {
+					delete(p, "crafting")
+				}
+			}
+		}
 	}
 	raw, err := json.Marshal(obj)
 	if err != nil {

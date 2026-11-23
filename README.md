@@ -62,7 +62,7 @@ GF Sync 不會修改防毒軟體或 Windows 的安全設定，也不會嘗試避
 需要 [Go](https://go.dev/)（版本見 `go.mod`）和 [Inno Setup 6](https://jrsoftware.org/isinfo.php)。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.1   # 測試 + exe + 安裝檔 + SHA256SUMS.txt，輸出到 dist\
+powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.2.0   # 測試 + exe + 安裝檔 + SHA256SUMS.txt，輸出到 dist\
 go test ./...                                                       # 只跑測試
 ```
 

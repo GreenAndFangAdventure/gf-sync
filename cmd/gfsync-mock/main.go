@@ -21,6 +21,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "listen address (loopback only)")
 	autoApprove := flag.Bool("auto-approve", false, "approve pairing codes without clicking")
 	fail := flag.Int("fail", 0, "make the first N uploads fail with HTTP 503")
+	failHTML := flag.Bool("fail-html", false, "with -fail: answer an HTML error page with a CF-Ray header (like Cloudflare) instead of JSON")
 	expires := flag.Int("expires", 600, "pairing code lifetime in seconds")
 	flag.Parse()
 
@@ -32,7 +33,9 @@ func main() {
 	m.Interval = 2
 	m.ExpiresIn = *expires
 	m.BaseURL = "http://" + *addr
-	if *fail > 0 {
+	if *fail > 0 && *failHTML {
+		m.FailNextRaw(503, "text/html; charset=UTF-8", mockapi.CloudflareErrorPage, "8f0000000000a1b2-TPE", *fail)
+	} else if *fail > 0 {
 		m.FailNext(503, 0, *fail)
 	}
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

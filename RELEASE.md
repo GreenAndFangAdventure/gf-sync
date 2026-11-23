@@ -10,6 +10,7 @@
   - `notes`：一句話的更新說明（顯示在玩家的通知裡），沒有就留 `""`。
   - `privacyChanged`：這一版的 `PRIVACY.md` 有實質修改才是 `true`；**上一版是 true 的話記得改回 false**。
   - `minGFSync`：網站準備拒收比這個舊的 GF Sync 時才填（同時要和網站的 426 設定一致），平常留 `""`。
+- [ ] **打 tag 之前**在 `CHANGELOG.md` 加這一版的段落（給玩家看，繁體中文、簡短），草稿 Release 的說明可以直接貼這段。
 
 - [ ] 正式版由 GitHub Actions 建置：在 `main` 上推送 tag `v<版本>`，workflow 會建立**草稿** Release。本機試建可在 repo 根目錄執行 `powershell -ExecutionPolicy Bypass -File build.ps1 -Version <版本>`。內容包含：
   - `go test ./...` 全部通過
