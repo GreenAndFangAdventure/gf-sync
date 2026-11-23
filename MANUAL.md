@@ -53,6 +53,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.2.0
 
 - 關掉模擬伺服器再登出遊戲：預期圖示右下角出現紅點，選單顯示「無法連線到公會網站，稍後自動重試」；重開模擬伺服器後（最長約 30 分鐘，按「立即同步」可馬上重試）自動補傳，紅點消失。
 - `go run ./cmd/gfsync-mock -fail 3`：前三次上傳失敗，之後自動成功。
+- `go run ./cmd/gfsync-mock -fail 3 -fail-html`：同上，但回的是 HTML 錯誤頁（像 Cloudflare 的 503）。預期 `gfsync.log` 每次都有 `upload: HTTP 503; retry in …`，另外**只有一行** `upload: HTTP 503 response: cf-ray=… content-type=text/html… body(200 bytes max): …`（同一個狀態碼和 CF-Ray 機房一小時最多記一次），沒有 token 或上傳內容。
 - 找不到遊戲：把 `%APPDATA%\GFSync\state.json` 刪掉，並暫時把 `_forever_` 改名（或在沒有遊戲的電腦上測），啟動後預期跳出「找不到魔獸世界：永恆的資料夾」並開啟資料夾選擇器。
 
 ## 4. 安裝檔

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // DefaultBase is the production site.
@@ -66,7 +68,18 @@ type HTTPError struct {
 	Code       string
 	MinVersion string
 	Download   string
+	// CFRay is the response's CF-Ray header (Cloudflare's request ID),
+	// cleaned up for the log.
+	CFRay string
+	// Diag is set only when the body is not our JSON error (no "error" or
+	// "message"): CF-Ray, Content-Type and the start of the body, one line,
+	// for the log. The site's maintainers need it to find the request
+	// (e.g. a Cloudflare error page). Never holds request data.
+	Diag string
 }
+
+// DiagBodyBytes is how much of an unrecognized error body goes into Diag.
+const DiagBodyBytes = 200
 
 // StatusClientTooOld is what the site answers a GF Sync it no longer
 // accepts. v0.1.0 treats it like a server error (backs off, keeps the
@@ -148,7 +161,8 @@ func (c *Client) do(ctx context.Context, method, path, token string, body any, o
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		he := &HTTPError{Status: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+		he := &HTTPError{Status: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			CFRay: oneLine([]byte(resp.Header.Get("CF-Ray")), 64)}
 		var eb struct {
 			Error      string `json:"error"`
 			Message    string `json:"message"`
@@ -159,6 +173,9 @@ func (c *Client) do(ctx context.Context, method, path, token string, body any, o
 			he.Message = firstNonEmpty(eb.Message, eb.Error)
 			he.Code, he.MinVersion, he.Download = eb.Error, eb.MinVersion, eb.Download
 		}
+		if he.Message == "" {
+			he.Diag = diag(he.CFRay, resp.Header.Get("Content-Type"), data, token)
+		}
 		return he
 	}
 	if out != nil {
@@ -167,6 +184,51 @@ func (c *Client) do(ctx context.Context, method, path, token string, body any, o
 		}
 	}
 	return nil
+}
+
+// diag describes an error response we do not understand, for the log:
+// response headers CF-Ray and Content-Type and the first DiagBodyBytes of
+// the body. Only response data; the token is masked in case a broken
+// server echoes it back.
+func diag(ray, contentType string, body []byte, token string) string {
+	if token != "" {
+		body = bytes.ReplaceAll(body, []byte(token), []byte("***"))
+	}
+	if len(body) > DiagBodyBytes {
+		body = body[:DiagBodyBytes]
+	}
+	if ray == "" {
+		ray = "-"
+	}
+	ct := oneLine([]byte(contentType), 100)
+	if ct == "" {
+		ct = "-"
+	}
+	return fmt.Sprintf("cf-ray=%s content-type=%s body(%d bytes max): %s", ray, ct, DiagBodyBytes, oneLine(body, len(body)))
+}
+
+// oneLine keeps at most max bytes of b as one printable line: newlines
+// are dropped, tabs become spaces, anything else not printable (control
+// characters, invalid or cut-off UTF-8) becomes '?'.
+func oneLine(b []byte, max int) string {
+	if len(b) > max {
+		b = b[:max]
+	}
+	var sb strings.Builder
+	for len(b) > 0 {
+		r, n := utf8.DecodeRune(b)
+		b = b[n:]
+		switch {
+		case r == '\n' || r == '\r':
+		case r == '\t':
+			sb.WriteByte(' ')
+		case r == utf8.RuneError && n <= 1, !unicode.IsPrint(r):
+			sb.WriteByte('?')
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 func firstNonEmpty(a ...string) string {

@@ -42,6 +42,11 @@ type device struct {
 type failure struct {
 	status     int
 	retryAfter int
+	// raw: answer with this Content-Type, body and CF-Ray instead of the
+	// JSON error (e.g. a Cloudflare HTML error page).
+	raw               bool
+	contentType, body string
+	cfRay             string
 }
 
 // Server is the mock. Zero value is not usable; call New.
@@ -330,7 +335,19 @@ func (s *Server) FailNext(status, retryAfter, times int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := 0; i < times; i++ {
-		s.failures = append(s.failures, failure{status, retryAfter})
+		s.failures = append(s.failures, failure{status: status, retryAfter: retryAfter})
+	}
+}
+
+// FailNextRaw makes the next upload calls fail with status and a body
+// that is not our JSON (contentType, body and a CF-Ray header), the way a
+// Cloudflare error page looks. cfRay "" leaves the header out.
+func (s *Server) FailNextRaw(status int, contentType, body, cfRay string, times int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := 0; i < times; i++ {
+		s.failures = append(s.failures, failure{status: status, raw: true,
+			contentType: contentType, body: body, cfRay: cfRay})
 	}
 }
 
@@ -385,6 +402,15 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		s.failures = s.failures[1:]
 		if f.retryAfter > 0 {
 			w.Header().Set("Retry-After", fmt.Sprint(f.retryAfter))
+		}
+		if f.raw {
+			if f.cfRay != "" {
+				w.Header().Set("CF-Ray", f.cfRay)
+			}
+			w.Header().Set("Content-Type", f.contentType)
+			w.WriteHeader(f.status)
+			io.WriteString(w, f.body)
+			return
 		}
 		writeJSON(w, f.status, map[string]string{"error": "injected"})
 		return
