@@ -15,6 +15,7 @@ import "strings"
 //     withdrawn.location is a time, not a place. Since D-015 the AddOn
 //     only writes recipes; all and location may still come from older
 //     AddOns and are passed on for the site to decide.
+//   - crafting: rebuilt by craftingPayload (crafting.go, GF-006-B).
 func sharePayload(v any) (map[string]any, bool) {
 	in, ok := v.(map[string]any)
 	if !ok {
@@ -47,6 +48,9 @@ func sharePayload(v any) (map[string]any, bool) {
 	}
 	if w := withdrawn(in["withdrawn"]); w != nil {
 		out["withdrawn"] = w
+	}
+	if c := craftingPayload(in["crafting"]); c != nil {
+		out["crafting"] = c
 	}
 	return out, true
 }
