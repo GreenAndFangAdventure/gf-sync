@@ -46,7 +46,7 @@ GreenFangToolkitDB = {
   - `recipes["<skillLineID>"]`：`recordedAt`（必填）、`via`、`hash`、`ids`（只留數字）。
   - `withdrawn`：`recipes["<skillLineID>"]`（放棄專業的時間）。舊版工具箱可能還會寫 `all`、`location`，GF Sync 照樣接受並上傳，由網站決定要不要處理。都是時間（數字）；`withdrawn.location` 是時間，不是位置。
   - `crafting`：見下一點。
-- `crafting`（工具箱 0.11.0 起，製作服務與訂單；`character.self` 和 `member.share` 都可能有）：GF Sync 用同一份清單重建，只留 savedvariables 契約 §crafting 列出的鍵和型別。字串只接受角色 GUID、`"*"` 和列出的狀態值，數字只接受非負整數；訂單 id 只接受 `[0-9a-z.]`、最多 64 字元。型別不對的專業或配方報價只丟掉那一項；訂單的 `w`（客人）或 `j`（工匠）只有一半不合格時只丟那一半，兩半都不合格才整張丟掉；名字、備註（`note`）、網站參考（`ext`）和其他文字一律不上傳。沒填的工錢不會補成 `0`。上限：每位作者 100 張單（超過時先丟 `closedAt` 最舊的結案單，再丟 `created` 最舊的進行中單）、12 個專業（保留 ID 最小的）、每個專業 500 個配方報價（保留 ID 最小的）。
+- `crafting`（工具箱 0.11.0 起，製作服務與訂單；`character.self` 和 `member.share` 都可能有）：GF Sync 用同一份清單重建，只留 savedvariables 契約 §crafting（v1.4a，含 `w.returnedAt`、`j.statusAt`）列出的鍵和型別。同一張單有好幾份 `j`、誰接到單等決勝規則由網站處理，GF Sync 不判斷。字串只接受角色 GUID、`"*"` 和列出的狀態值，數字只接受非負整數；訂單 id 只接受 `[0-9a-z.]`、最多 64 字元。型別不對的專業或配方報價只丟掉那一項；訂單的 `w`（客人）或 `j`（工匠）只有一半不合格時只丟那一半，兩半都不合格才整張丟掉；名字、備註（`note`）、網站參考（`ext`）和其他文字一律不上傳。沒填的工錢不會補成 `0`。上限：每位作者 100 張單（超過時先丟 `closedAt` 最舊的結案單，再丟 `created` 最舊的進行中單）、12 個專業（保留 ID 最小的）、每個專業 500 個配方報價（保留 ID 最小的）。
 - `recipe.names`：`{ locale, names = { ["<配方 ID>"] = "名稱" } }`，原樣上傳。
 - `roster.snapshot`（某位成員看到的整份公會名冊）：`total`，以及每位成員的 `name`、`guid`、`level`、`classToken`、`race`、`raceID`、`guildRank`、`professions`、`professionSource`。
 
