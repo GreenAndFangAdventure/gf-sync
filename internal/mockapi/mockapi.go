@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gfsync/internal/update"
 )
 
 // Guild is the only accepted guild (upload API v1 §3.1).
@@ -51,6 +53,10 @@ type Server struct {
 	BaseURL   string // used to build verifyUrl; set by the caller
 
 	unknownKinds map[string]bool // kinds answered with "unknown_kind" (an old site)
+	addonTooOld  map[string]bool // kinds answered with "addon_too_old"
+	minClient    string          // GF Sync below this gets 426 client_too_old
+	minAddon     string          // client.addonVersion below this (or missing): addon_too_old
+	requests     []Request       // accepted upload requests, in order
 
 	pairings      map[string]*pairing // by deviceCode
 	devices       map[string]*device  // by token hash
@@ -121,6 +127,9 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.tooOldLocked(w, body.ClientVersion) {
+		return
+	}
 	if len(s.startFailures) > 0 {
 		f := s.startFailures[0]
 		s.startFailures = s.startFailures[1:]
@@ -247,6 +256,59 @@ func (s *Server) SetUnknownKinds(kinds ...string) {
 	}
 }
 
+// SetMinClient makes the mock refuse GF Sync versions below v with 426
+// client_too_old on start and upload (docs/AUTO_UPDATE.md §3). "" = off.
+func (s *Server) SetMinClient(v string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.minClient = v
+}
+
+// SetMinAddon answers every item of a request whose client.addonVersion
+// is missing or below v with addon_too_old (not remembered). "" = off.
+func (s *Server) SetMinAddon(v string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.minAddon = v
+}
+
+// Request is one upload request as the mock saw it.
+type Request struct {
+	AddonVersion string   // client.addonVersion ("" = not sent)
+	IDs          []string // items of a known kind, in request order
+}
+
+// Requests lists the upload requests that got per-item results.
+func (s *Server) Requests() []Request {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Request(nil), s.requests...)
+}
+
+// SetAddonTooOld answers entries of these kinds with rejected /
+// "addon_too_old", without remembering the id. No kinds = off.
+func (s *Server) SetAddonTooOld(kinds ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addonTooOld = map[string]bool{}
+	for _, k := range kinds {
+		s.addonTooOld[k] = true
+	}
+}
+
+// tooOldLocked writes the 426 answer if version is below minClient.
+func (s *Server) tooOldLocked(w http.ResponseWriter, version string) bool {
+	if s.minClient == "" || update.Compare(version, s.minClient) >= 0 {
+		return false
+	}
+	writeJSON(w, 426, map[string]string{
+		"error":      "client_too_old",
+		"minVersion": s.minClient,
+		"download":   s.BaseURL + "/pages/sync",
+	})
+	return true
+}
+
 // knownKinds are the kinds this mock (upload-api v1.1) accepts.
 var knownKinds = map[string]bool{
 	"character.self": true, "roster.snapshot": true, "member.report": true,
@@ -355,11 +417,18 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Client struct{ Name, Version string } `json:"client"`
-		Items  []json.RawMessage              `json:"items"`
+		Client struct {
+			Name         string `json:"name"`
+			Version      string `json:"version"`
+			AddonVersion string `json:"addonVersion"`
+		} `json:"client"`
+		Items []json.RawMessage `json:"items"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil || req.Client.Name == "" {
 		writeJSON(w, 400, map[string]string{"error": "bad_request"})
+		return
+	}
+	if s.tooOldLocked(w, req.Client.Version) {
 		return
 	}
 	if len(req.Items) > 50 {
@@ -373,6 +442,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		Skipped *int   `json:"skipped,omitempty"`
 	}
 	results := []result{}
+	rq := Request{AddonVersion: req.Client.AddonVersion}
+	addonOld := s.minAddon != "" && (req.Client.AddonVersion == "" || update.Compare(req.Client.AddonVersion, s.minAddon) < 0)
+	defer func() { s.requests = append(s.requests, rq) }()
 	for _, raw := range req.Items {
 		var it struct {
 			ID         string  `json:"id"`
@@ -395,6 +467,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			// Not remembered: once the site learns the kind, the same id
 			// is accepted (upload-api v1.1 §2).
 			results = append(results, result{ID: it.ID, Status: "rejected", Reason: "unknown_kind"})
+			continue
+		}
+		rq.IDs = append(rq.IDs, it.ID)
+		if s.addonTooOld[it.Kind] || addonOld {
+			results = append(results, result{ID: it.ID, Status: "rejected", Reason: "addon_too_old"})
 			continue
 		}
 		if _, dup := s.seen[it.ID]; dup {
@@ -509,7 +586,7 @@ func anyPrivateKey(v any) bool {
 }
 
 // subjectOnly reports whether a member.report payload.subject is present
-// with a name and nothing but name, realm and guid strings (D-011).
+// with a name and nothing but name, realm, guid and fullName strings (D-011).
 func subjectOnly(raw []byte) bool {
 	var item struct {
 		Payload struct {
@@ -523,7 +600,7 @@ func subjectOnly(raw []byte) bool {
 		return false
 	}
 	for k, v := range item.Payload.Subject {
-		if _, ok := v.(string); !ok || (k != "name" && k != "realm" && k != "guid") {
+		if _, ok := v.(string); !ok || (k != "name" && k != "realm" && k != "guid" && k != "fullName") {
 			return false
 		}
 	}

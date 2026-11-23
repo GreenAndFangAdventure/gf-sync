@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"unicode/utf8"
 
@@ -90,7 +91,14 @@ type Entry struct {
 	ID   string
 	Kind string
 	JSON json.RawMessage // the entry converted to JSON (privacy fields removed)
+	// AddonVersion is the file's top-level addonVersion ("" if missing or
+	// not a plain version). GF Sync sends it as client.addonVersion.
+	AddonVersion string
 }
+
+// reAddonVersion is what may be sent as client.addonVersion: a short
+// version-like string, nothing else the AddOn might have written there.
+var reAddonVersion = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$`)
 
 // Doc is the interpretation of one SavedVariables file.
 type Doc struct {
@@ -117,7 +125,7 @@ func Parse(src []byte) (*Doc, error) {
 		return &Doc{Status: StatusNoTable}, nil
 	}
 	d := &Doc{SchemaVersion: db.Get("schemaVersion")}
-	if s, ok := db.Get("addonVersion").(string); ok {
+	if s, ok := db.Get("addonVersion").(string); ok && reAddonVersion.MatchString(s) {
 		d.AddonVersion = s
 	}
 	switch v := db.Get("schemaVersion").(type) {
@@ -151,6 +159,7 @@ func Parse(src []byte) (*Doc, error) {
 			d.OtherGuild++
 			continue
 		}
+		e.AddonVersion = d.AddonVersion
 		d.Entries = append(d.Entries, e)
 		if e.Kind == KindMemberShare {
 			shareAt = append(shareAt, capturedAt(item.(*luasv.Table)))
@@ -330,8 +339,8 @@ func locationText(v any) (string, bool) { return boundedText(v, MaxLocationLen) 
 const MaxSubjectLen = 64
 
 // keepSubject rebuilds a member.report payload.subject from only name,
-// realm and guid. name is required (a non-empty string of at most
-// MaxSubjectLen characters), or the entry is malformed; realm and guid are
+// realm, guid and fullName. name is required (a non-empty string of at most
+// MaxSubjectLen characters), or the entry is malformed; the others are
 // kept only when they are such strings.
 func keepSubject(entry map[string]any) bool {
 	payload, ok := entry["payload"].(map[string]any)
@@ -346,8 +355,10 @@ func keepSubject(entry map[string]any) bool {
 	return true
 }
 
-// subjectOf rebuilds a subject from only name (required), realm and guid;
-// nil when there is no valid name.
+// subjectOf rebuilds a subject from only name (required), realm, guid and
+// fullName; nil when there is no valid name. fullName is the full name as
+// the Blizzard roster shows it ("名字 姓氏"), which the site matches on; it
+// is kept exactly as written (no trimming, inner spaces stay).
 func subjectOf(v any) map[string]any {
 	subj, ok := v.(map[string]any)
 	if !ok {
@@ -358,7 +369,7 @@ func subjectOf(v any) map[string]any {
 		return nil
 	}
 	out := map[string]any{"name": name}
-	for _, k := range []string{"realm", "guid"} {
+	for _, k := range []string{"realm", "guid", "fullName"} {
 		if v, ok := boundedText(subj[k], MaxSubjectLen); ok {
 			out[k] = v
 		}

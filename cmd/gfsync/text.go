@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"gfsync/internal/engine"
+	"gfsync/internal/update"
 )
 
 // Display texts (繁體中文). Kept free of Win32 calls so they can be tested.
@@ -112,7 +114,8 @@ const (
 	actionNone action = iota
 	actionPair
 	actionFolder
-	actionHelp // open the 「如果被防毒擋下」 help
+	actionHelp     // open the 「如果被防毒擋下」 help
+	actionDownload // open the download page (the site refused this version)
 )
 
 // problemAction is what clicking the ⚠ line in the menu does.
@@ -120,6 +123,8 @@ func problemAction(s engine.Status) action {
 	switch {
 	case blocked(s):
 		return actionHelp
+	case s.ClientTooOld:
+		return actionDownload
 	case s.NeedGameDir:
 		return actionFolder
 	case !s.Paired && !s.Pairing:
@@ -238,4 +243,57 @@ func findUninstaller(dir string) string {
 		return ""
 	}
 	return m[len(m)-1]
+}
+
+// Update texts. GF Sync only tells the player; it never downloads or runs
+// an installer itself (docs/AUTO_UPDATE.md §4.3).
+
+const checkUpdateMenu = "檢查更新"
+
+func updateMenuText(u *engine.Update) string {
+	if u.Required {
+		return "⬆ 請更新到 GF Sync " + u.Version + "（點這裡下載）"
+	}
+	return "⬆ 有新版本 GF Sync " + u.Version + "（點這裡下載）"
+}
+
+// updateNotice is the one notification per new version.
+func updateNotice(u *engine.Update) (title, text string) {
+	title = "GF Sync 有新版本 " + u.Version
+	text = "請從工作列選單下載新版安裝檔。"
+	if u.Required {
+		text = "這一版很快就不能上傳了，請從工作列選單下載新版安裝檔。"
+	}
+	if u.PrivacyChanged {
+		text += "這一版的隱私權政策有修改，安裝時會顯示。"
+	}
+	if u.Notes != "" {
+		text += "\n" + u.Notes
+	}
+	return title, text
+}
+
+// checkResultText answers 「檢查更新」.
+func checkResultText(u *engine.Update, err error) (title, text string) {
+	switch {
+	case errors.Is(err, engine.ErrUpdatesOff):
+		return checkUpdateMenu, "這是測試版，不會檢查更新。"
+	case errors.Is(err, update.ErrNotFound):
+		return checkUpdateMenu, "目前是最新版本。"
+	case err != nil:
+		return checkUpdateMenu, "現在無法檢查更新，請稍後再試。"
+	case u == nil:
+		return checkUpdateMenu, "目前是最新版本。"
+	}
+	return updateNotice(u)
+}
+
+const tooOldTitle = "請更新 GF Sync"
+
+func tooOldText(s engine.Status) string {
+	t := "網站已經不收這一版 GF Sync 的資料"
+	if s.MinVersion != "" {
+		t += "（需要 " + s.MinVersion + " 以上）"
+	}
+	return t + "。資料會先留在電腦上，更新後自動上傳。點工作列選單 ⚠ 那一行下載。"
 }

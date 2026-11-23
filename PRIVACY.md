@@ -11,11 +11,11 @@ GF Sync（綠皮同步）是「綠皮與獠牙冒險事務所」公會的開源�
 | 類別 | 欄位 |
 | --- | --- |
 | 遊戲資訊 | 世界（永恆）、遊戲版本、伺服器、語系 |
-| 上傳者（你登入的角色） | 角色 GUID、角色名稱、伺服器、陣營、公會、公會階級 |
+| 上傳者（你登入的角色） | 角色 GUID、角色名稱（包含公會名冊上的完整名稱「名字 姓氏」）、伺服器、陣營、公會、公會階級 |
 | 角色本人資料（`character.self`） | 等級、職業、種族、專業技能與等級、配方清單（配方 ID，開過專業視窗才有）、資料擷取時間 |
 | 自己角色的所在地 | 寫入存檔那一刻（通常是登出時）所在的區域和子區域名稱，只有你自己的角色，不含座標 |
-| 其他成員分享給你的資料（`member.report`） | 公會裡也裝了綠皮冒險工具箱的成員，在遊戲內分享給你的**他們自己**的資料：角色名稱、伺服器、GUID、等級、職業、專業與技能點、分享時間，以及所在的區域和子區域名稱 |
-| 公會成員轉傳的資料（`member.share`） | 公會成員在遊戲內分享、再由其他成員轉傳給你的資料：成員的角色名稱、伺服器、GUID、等級、職業、專業與技能點、配方清單、所在的區域和子區域名稱，每一項都附原作者記錄的時間；以及「放棄專業」的時間（舊版工具箱也可能帶「關閉同步」或「關掉分享所在地」的時間） |
+| 其他成員分享給你的資料（`member.report`） | 公會裡也裝了綠皮冒險工具箱的成員，在遊戲內分享給你的**他們自己**的資料：角色名稱（包含完整名稱）、伺服器、GUID、等級、職業、專業與技能點、分享時間，以及所在的區域和子區域名稱 |
+| 公會成員轉傳的資料（`member.share`） | 公會成員在遊戲內分享、再由其他成員轉傳給你的資料：成員的角色名稱（包含完整名稱）、伺服器、GUID、等級、職業、專業與技能點、配方清單、所在的區域和子區域名稱，每一項都附原作者記錄的時間；以及「放棄專業」的時間（舊版工具箱也可能帶「關閉同步」或「關掉分享所在地」的時間） |
 | 配方名稱（`recipe.names`） | 配方 ID 和遊戲裡顯示的配方名稱對照，讓網站能顯示配方名稱；不含任何人的資料 |
 | 公會名冊（`roster.snapshot`） | 名冊總人數；每位成員的角色名稱、GUID、等級、職業、種族、公會階級、專業 |
 | 配對時 | 電腦名稱（顯示在配對頁和「同步裝置」頁，讓你認得是哪台電腦）、GF Sync 版本 |
@@ -51,7 +51,11 @@ GF Sync 只上傳「綠皮與獠牙冒險事務所」成員的資料：存檔裡
 
 暫停或解除安裝 GF Sync，只會停止**這台電腦**上傳。你在遊戲內分享出去的資料，仍然可能由其他成員的 GF Sync 上傳；要停止遊戲內分享，請停用或移除綠皮冒險工具箱。舊版工具箱如果關閉過同步（`sync.enabled = false`），GF Sync 仍然會遵守，不上傳那個帳號的檔案。
 
-已經上傳到網站的資料不會因為暫停或解除安裝而刪除。如果要刪除，請在公會 Discord 聯絡幹部。
+已經上傳到網站的資料不會因為暫停或解除安裝而刪除。
+
+## 檢查更新
+
+GF Sync 每天會檢查一次有沒有新版本（工作列選單的「檢查更新」也會）：向公會網站拿版本清單，再向 GitHub（`github.com`）拿同一版的雜湊清單來核對；網站沒有清單時直接向 GitHub 拿。這些請求**不帶任何遊戲資料、帳號或配對 token**，只有 GF Sync 的版本號（在 User-Agent 裡）。GitHub 和公會網站一樣會看到你的 IP 位址。GF Sync 目前只會通知有新版，不會自己下載或安裝。如果要刪除，請在公會 Discord 聯絡幹部。
 
 ## 原始碼
 
@@ -61,4 +65,6 @@ GF Sync 以 MIT 授權開源，所有行為都可以從原始碼檢查：<https:
 
 ## English summary
 
-GF Sync uploads character and guild-roster data that the in-game AddOn "GreenFang Toolkit" saved to `sync.outbox` to the guild website greenandfangadventure.com (hosted on Cloudflare). Uploaded fields: game world/realm/locale; the uploading character's GUID, name, realm, faction, guild and rank; level, class, race and professions; for roster snapshots, each member's name, GUID, level, class, race, rank and professions; and at pairing time the computer name and GF Sync version. Your own character's location (zone and sub-zone names at the moment the AddOn saved, usually at logout; no coordinates) is uploaded with character data. It also uploads your own recipe list, recipe ID-to-name tables, and the level, class, professions, recipes and zone that other guild members shared in game, including data relayed through other members, each with the time the original author recorded it and the time a profession was dropped. Installing the AddOn means agreeing to share: your level, class, professions, recipes and zone are shared with and relayed by guild members who use the AddOn and may be uploaded by their GF Sync. The AddOn has no switch to turn sharing off; if you do not want to share, do not install it. GF Sync rebuilds relayed data from a fixed list of fields and sends nothing else. Roster members' locations and anyone's online status are never uploaded, and GF Sync strips them even if present; the log never records locations or shared members' names. GF Sync never modifies game files. Locally it keeps a DPAPI-encrypted device token, upload state and a log in `%APPDATA%\GFSync`; none of these are uploaded. The log masks WoW account folder names (first 2 characters + `******~` + a 4-digit hash) and shortens character GUIDs to their last 4 digits. To stop uploading from this computer: choose "暫停同步" (Pause) in the tray menu, revoke the device at <https://greenandfangadventure.com/pages/sync-devices>, or uninstall (which deletes `%APPDATA%\GFSync`). This does not stop the AddOn from sharing in game, so other members' GF Sync may still upload your data; disable or remove the AddOn to stop that. If an older AddOn version had sync turned off (`sync.enabled = false`), GF Sync still respects it. To delete data already uploaded, contact the guild officers on Discord.
+GF Sync uploads character and guild-roster data that the in-game AddOn "GreenFang Toolkit" saved to `sync.outbox` to the guild website greenandfangadventure.com (hosted on Cloudflare). Uploaded fields: game world/realm/locale; the uploading character's GUID, name (including the full "given name + family name" shown in the guild roster), realm, faction, guild and rank; level, class, race and professions; for roster snapshots, each member's name, GUID, level, class, race, rank and professions; and at pairing time the computer name and GF Sync version. Your own character's location (zone and sub-zone names at the moment the AddOn saved, usually at logout; no coordinates) is uploaded with character data. It also uploads your own recipe list, recipe ID-to-name tables, and the name (including the full name), level, class, professions, recipes and zone that other guild members shared in game, including data relayed through other members, each with the time the original author recorded it and the time a profession was dropped. Installing the AddOn means agreeing to share: your level, class, professions, recipes and zone are shared with and relayed by guild members who use the AddOn and may be uploaded by their GF Sync. The AddOn has no switch to turn sharing off; if you do not want to share, do not install it. GF Sync rebuilds relayed data from a fixed list of fields and sends nothing else. Roster members' locations and anyone's online status are never uploaded, and GF Sync strips them even if present; the log never records locations or shared members' names. GF Sync never modifies game files. Locally it keeps a DPAPI-encrypted device token, upload state and a log in `%APPDATA%\GFSync`; none of these are uploaded. The log masks WoW account folder names (first 2 characters + `******~` + a 4-digit hash) and shortens character GUIDs to their last 4 digits. To stop uploading from this computer: choose "暫停同步" (Pause) in the tray menu, revoke the device at <https://greenandfangadventure.com/pages/sync-devices>, or uninstall (which deletes `%APPDATA%\GFSync`). This does not stop the AddOn from sharing in game, so other members' GF Sync may still upload your data; disable or remove the AddOn to stop that. If an older AddOn version had sync turned off (`sync.enabled = false`), GF Sync still respects it.
+
+Update checks: once a day (and from the tray menu), GF Sync fetches a version manifest from the guild website and a checksum list from GitHub (`github.com`) to verify it. These requests carry no game data, account or token, only the GF Sync version in the User-Agent; GitHub sees your IP address. GF Sync currently only notifies you; it does not download or install anything by itself. To delete data already uploaded, contact the guild officers on Discord.

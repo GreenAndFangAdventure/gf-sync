@@ -114,6 +114,40 @@ jobs:
       #     } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
       # ---------------------------------------------------------------------------
 
+      # ---- Update manifest (docs/UPDATE_MANIFEST.md) --------------------------
+      # Runs after signing so the hash is the signed installer's. The
+      # manifest's own hash goes into SHA256SUMS.txt: that is how GF Sync
+      # checks the copy the site serves. Release-specific fields come from
+      # release-manifest.json (edit it before tagging, see RELEASE.md).
+      - name: Update manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $v = $env:VERSION
+          $setup = "dist/GFSync-Setup-$v.exe"
+          $extra = Get-Content -Raw -Encoding utf8 release-manifest.json | ConvertFrom-Json
+          if ($extra.minGFSync -and $extra.minGFSync -notmatch '^\d+\.\d+\.\d+([-][0-9A-Za-z.-]+)?$') { throw "release-manifest.json: bad minGFSync" }
+          $m = [ordered]@{
+            schema         = 1
+            product        = "GFSync"
+            version        = $v
+            channel        = "release"
+            released       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            url            = "https://github.com/GreenAndFangAdventure/gf-sync/releases/download/v$v/GFSync-Setup-$v.exe"
+            sha256         = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
+            size           = (Get-Item $setup).Length
+            minGFSync      = [string]$extra.minGFSync
+            changelog      = "https://github.com/GreenAndFangAdventure/gf-sync/releases/tag/v$v"
+            privacyChanged = [bool]$extra.privacyChanged
+            notes          = [string]$extra.notes
+          }
+          $json = ($m | ConvertTo-Json -Compress) + "`n"
+          [IO.File]::WriteAllText("dist/gfsync-manifest.json", $json, [Text.UTF8Encoding]::new($false))
+          $h = (Get-FileHash -Algorithm SHA256 dist/gfsync-manifest.json).Hash.ToLower()
+          [IO.File]::AppendAllLines("dist/SHA256SUMS.txt", [string[]]@("$h  gfsync-manifest.json"))
+          Get-Content dist/gfsync-manifest.json
+      # ---------------------------------------------------------------------------
+
       - name: Show SHA-256
         run: Get-Content dist/SHA256SUMS.txt
 
@@ -124,6 +158,7 @@ jobs:
             dist/GFSync.exe
             dist/GFSync-Setup-*.exe
             dist/SHA256SUMS.txt
+            dist/gfsync-manifest.json
           if-no-files-found: error
 
   release:

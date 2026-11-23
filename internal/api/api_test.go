@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,10 +104,10 @@ func TestUploadUnauthorized(t *testing.T) {
 	}))
 	defer srv.Close()
 	c, _ := New(srv.URL, "1")
-	if _, err := c.Upload(context.Background(), "bad", nil); !errors.Is(err, ErrUnauthorized) {
+	if _, err := c.Upload(context.Background(), "bad", "", nil); !errors.Is(err, ErrUnauthorized) {
 		t.Fatal(err)
 	}
-	r, err := c.Upload(context.Background(), "good", nil)
+	r, err := c.Upload(context.Background(), "good", "", nil)
 	if err != nil || len(r) != 1 || r[0].Status != "accepted" {
 		t.Fatal(r, err)
 	}
@@ -148,7 +149,7 @@ func TestPollTokenWithDeviceIDAndSkipped(t *testing.T) {
 	if err != nil || r.Token != "t" || r.Pending {
 		t.Fatal(r, err)
 	}
-	res, err := c.Upload(context.Background(), "t", nil)
+	res, err := c.Upload(context.Background(), "t", "", nil)
 	if err != nil || res[0].Status != "accepted" {
 		t.Fatal(res, err)
 	}
@@ -180,5 +181,20 @@ func TestPollDeniedVersusExpired(t *testing.T) {
 		if !errors.Is(err, ErrPairingEnded) || errors.Is(err, ErrPairingDenied) != c.denied {
 			t.Errorf("%d %s: err %v", c.status, c.body, err)
 		}
+	}
+}
+
+func TestUploadRequestAddonVersion(t *testing.T) {
+	c, err := New("https://example.com", "0.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(c.NewUploadRequest("0.10.0", nil))
+	if !strings.Contains(string(b), `"addonVersion":"0.10.0"`) {
+		t.Errorf("%s", b)
+	}
+	b, _ = json.Marshal(c.NewUploadRequest("", nil))
+	if strings.Contains(string(b), "addonVersion") {
+		t.Errorf("an unknown AddOn version is left out: %s", b)
 	}
 }

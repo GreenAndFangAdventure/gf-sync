@@ -28,6 +28,22 @@ func has(list []string, s string) bool {
 	return false
 }
 
+// removeWhileRetrying removes a path the engine keeps trying to read
+// (every DetectEvery while it is unreadable). On Windows a directory cannot
+// be removed while another handle is open on it, so a Remove that lands
+// during one of those reads fails with a sharing violation; try again
+// briefly instead of failing the test on that race.
+func removeWhileRetrying(t *testing.T, p string) {
+	t.Helper()
+	var err error
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if err = os.Remove(p); err == nil || os.IsNotExist(err) {
+			return
+		}
+	}
+	t.Fatal(err)
+}
+
 func TestE2EGameFolderDeniedIsNotNotFound(t *testing.T) {
 	h := newHarness(t)
 	h.writeSV("A", sv(2, true, "a:1:character.self"))
@@ -107,9 +123,7 @@ func TestE2ETokenUnreadableIsKept(t *testing.T) {
 	}
 
 	// Readable again (here: really absent): the warning goes away.
-	if err := os.Remove(tok); err != nil {
-		t.Fatal(err)
-	}
+	removeWhileRetrying(t, tok)
 	h.waitFor("token readable", func() bool {
 		s := h.eng.Status()
 		return !s.TokenUnreadable && !has(s.Storage, engine.StorageToken)
@@ -136,9 +150,7 @@ func TestE2EStateUnreadableIsNotOverwritten(t *testing.T) {
 	}
 
 	// Readable again: the state is loaded, merged and saved.
-	if err := os.Remove(sp); err != nil {
-		t.Fatal(err)
-	}
+	removeWhileRetrying(t, sp)
 	h.waitFor("state saved", func() bool {
 		s, err := state.Load(sp)
 		return err == nil && s.GameDir == h.forever && !has(h.eng.Status().Storage, engine.StorageState)
