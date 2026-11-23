@@ -268,12 +268,17 @@ func toEntry(item any) (Entry, bool) {
 	case "character.self":
 		// The rest of character.self goes as written; crafting is rebuilt
 		// with the member.share rules (savedvariables §3.11).
+		// adventure likewise (§3.8, GF-002-B).
 		if p, ok := obj["payload"].(map[string]any); ok {
-			if _, has := p["crafting"]; has {
-				if c := craftingPayload(p["crafting"]); c != nil {
-					p["crafting"] = c
-				} else {
-					delete(p, "crafting")
+			for key, rebuild := range map[string]func(any) map[string]any{
+				"crafting": craftingPayload, "adventure": adventurePayload,
+			} {
+				if _, has := p[key]; has {
+					if c := rebuild(p[key]); c != nil {
+						p[key] = c
+					} else {
+						delete(p, key)
+					}
 				}
 			}
 		}

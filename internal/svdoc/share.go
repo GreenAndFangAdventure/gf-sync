@@ -16,6 +16,7 @@ import "strings"
 //     only writes recipes; all and location may still come from older
 //     AddOns and are passed on for the site to decide.
 //   - crafting: rebuilt by craftingPayload (crafting.go, GF-006-B).
+//   - adventure: rebuilt by adventurePayload (adventure.go, GF-002-B).
 func sharePayload(v any) (map[string]any, bool) {
 	in, ok := v.(map[string]any)
 	if !ok {
@@ -51,6 +52,9 @@ func sharePayload(v any) (map[string]any, bool) {
 	}
 	if c := craftingPayload(in["crafting"]); c != nil {
 		out["crafting"] = c
+	}
+	if a := adventurePayload(in["adventure"]); a != nil {
+		out["adventure"] = a
 	}
 	return out, true
 }
