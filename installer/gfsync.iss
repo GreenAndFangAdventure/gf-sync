@@ -1,5 +1,5 @@
 ﻿; 綠皮同步（GF Sync）安裝檔 — Inno Setup 6
-; 由 sync/build.ps1 編譯：ISCC /DAppVersion=0.1.0 installer\gfsync.iss
+; 由 sync/build.ps1 編譯：ISCC /DAppVersion=0.2.0 installer\gfsync.iss
 ; 安裝到使用者資料夾，不需要系統管理員權限，也不會碰魔獸世界的任何資料夾。
 
 #ifndef AppVersion

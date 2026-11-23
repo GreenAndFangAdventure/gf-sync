@@ -23,7 +23,7 @@ import (
 	"gfsync/internal/winui"
 )
 
-// version is set at build time: -ldflags "-X main.version=0.1.0".
+// version is set at build time: -ldflags "-X main.version=0.2.0".
 var version = "0.0.0-dev"
 
 func dataDir() string {
